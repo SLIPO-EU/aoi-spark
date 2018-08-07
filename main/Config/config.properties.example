@@ -1,0 +1,13 @@
+#InputFile = /input.csv
+#OutputFile = /output.csv
+
+# Columns ranks start from 1 (left most Column) and count onwards...
+#Longitude_Col = 2
+#Latitude_Col  = 3
+#Id_Col   = 1
+#Column_sep  = ;
+
+# lambda specified partition size w.r.t. eps
+#lambda = 50
+#epsilon = 0.005
+#minPts = 10
