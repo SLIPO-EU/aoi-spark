@@ -2,8 +2,8 @@ package runnables
 
 import HotSpots._
 import MySparkContext.mySparkContext
-import gr.athenarc.imsi.slipo.analytics.loci.io.ResultsWriter
 import io.InputFileParser
+import io.Out._
 
 object hotspots {
 
@@ -43,8 +43,8 @@ object hotspots {
 
         val hotSpots = new Hotspots()
 
-        //List[SpatialObject]
-        val hotSpotsLst = hotSpots.hotSpots(
+        //Array[(index, Geometry, Score)]
+        val hotSpotsArr = hotSpots.hotSpots(
                                         inputFile,
 
                                         lonCol,
@@ -64,10 +64,7 @@ object hotspots {
                                         hs_printAsUnionCells
                                      )
 
-
-        val resultsWriter: ResultsWriter = new ResultsWriter()
-        resultsWriter.write(hotSpotsLst, hs_outputFile, colSep)
-
+        write_hotspots(hotSpotsArr, hs_outputFile, delimiter = ";" )
 
         println("Total Time = " + (System.nanoTime() - startTime) / 1000000000L + " sec")
 

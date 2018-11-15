@@ -7,11 +7,9 @@ package HotSpots
 * Authors: Panagiotis Kalampokis, Dr. Dimitris Skoutas
 * */
 
-import java.util
-
 import MySparkContext.mySparkContext
 import com.vividsolutions.jts.geom.{Coordinate, Geometry, GeometryFactory}
-import gr.athenarc.imsi.slipo.analytics.loci.{POI, SpatialObject}
+import Spatial._
 import org.apache.spark.rdd.RDD
 import org.apache.spark.storage.StorageLevel._
 import scala.collection.mutable.HashMap
@@ -115,39 +113,31 @@ class Hotspots() extends Serializable {
     }
 
 
-    def toSpatialObjLst(
-                       hotSpotsArrBuff: Array[(String, Double)],
-                       gs_cell: Double,
-                       startX: Double,
-                       startY: Double,
-                       unionCells: Boolean) : util.List[SpatialObject] = {
+    def toGeomScoreArr(
+                        hotSpotsArr: Array[(String, Double)],
+                        gs_cell: Double,
+                        startX: Double,
+                        startY: Double,
+                        unionCells: Boolean
+                      ) : Array[(Int, Geometry, Double)] = {
 
         val geometryFactory = new GeometryFactory()
 
         if(unionCells){
-
-            val resGeomVec = hotSpotsArrBuff.foldLeft(Vector[(Geometry, Double, Int)]() )(
+            val resGeomVec = hotSpotsArr.foldLeft(Vector[(Geometry, Double, Int)]() )(
                 (zVec, x) => insertXintoGeomVec((cellIDToGeometry(x._1, gs_cell, startX, startY, geometryFactory), x._2), zVec)
             )
 
-            var i = 0
-            val geomArrList = new util.ArrayList[SpatialObject]()
-
-            while(i < resGeomVec.size){
-                val (geom, score, count) = resGeomVec(i)
-                geomArrList.add(new SpatialObject(i.toString, "", null, score / count.toDouble, geom))
-                i = i + 1
-            }
-
-            geomArrList
+            resGeomVec.map(x => (x._1, x._2 / x._3) )
+                      .zipWithIndex
+                      .map(x => (x._2, x._1._1, x._1._2) )
+                      .toArray
         }
         else{
-            hotSpotsArrBuff.foldLeft(new util.ArrayList[SpatialObject]())(
-                (zArrLst, tuple) => {
-                    zArrLst.add(new SpatialObject(tuple._1, "", null, tuple._2, cellIDToGeometry(tuple._1, gs_cell, startX, startY, geometryFactory)) )
-                    zArrLst
-                }
-            )
+
+            hotSpotsArr.map(x => (cellIDToGeometry(x._1, gs_cell, startX, startY, geometryFactory), x._2))
+                       .zipWithIndex
+                       .map(x => (x._2, x._1._1, x._1._2))
         }
     }
 
@@ -170,7 +160,7 @@ class Hotspots() extends Serializable {
                  pSize_k: Int,
                  top_k : Int,
                  nbCellWeight: Double,
-                 unionCells: Boolean) : util.List[SpatialObject] = {
+                 unionCells: Boolean) : Array[(Int, Geometry, Double)] = {
 
 
         val inputRDD = mySparkContext.sc.textFile(inputFile)
@@ -223,11 +213,9 @@ class Hotspots() extends Serializable {
                  pSize_k: Int,
                  top_k : Int,
                  nbCellWeight: Double,
-                 unionCells: Boolean) : util.List[SpatialObject] = {
+                 unionCells: Boolean) : Array[(Int, Geometry, Double)] = {
 
-
-        val inputRDD = poiRDD.map(poi => (poi.getPoint.getX, poi.getPoint.getY, poi.getScore) )
-
+        val inputRDD = poiRDD.map(poi => (poi.x, poi.y, poi.score))
         findHotSpots(inputRDD, gsCell, pSize_k, top_k, nbCellWeight, unionCells)
     }
 
@@ -240,7 +228,7 @@ class Hotspots() extends Serializable {
                     pSize_k: Int,
                     top_k : Int,
                     nbCellWeight: Double,
-                    unionCells: Boolean) : util.List[SpatialObject] = {
+                    unionCells: Boolean) : Array[(Int, Geometry, Double)] = {
 
         //Take the 1st poi as the starting point of X,Y axis.
         val (startX, startY, _) = inputRDD.take(1).head
@@ -258,15 +246,11 @@ class Hotspots() extends Serializable {
             (s1, s2) => (s1._1 + s2._1, s1._2 + s2._2, s1._3 + s2._3)
         )
 
-        val xMean = totalScoreSum / totalNumOfCells.toDouble
-        val sMean = math.sqrt( (totalScoreSumPow2 / totalNumOfCells.toDouble) - xMean * xMean )
+        val xMeanBD =  mySparkContext.sc.broadcast(totalScoreSum / totalNumOfCells.toDouble)
+        //val xMean = totalScoreSum / totalNumOfCells.toDouble
 
-        println("Start: " + startX + ", " + startY)
-        println("Total Number Of Cells = " + totalNumOfCells)
-        println("Total Score Sum = " + totalScoreSum)
-        println("Total (Score ^ 2) Sum = " + totalScoreSumPow2)
-        println("xMean = " + xMean)
-        println("sMean = " + sMean)
+        val sMeanBD = mySparkContext.sc.broadcast(math.sqrt( (totalScoreSumPow2 / totalNumOfCells.toDouble) - xMeanBD.value * xMeanBD.value))
+        //val sMean = math.sqrt( (totalScoreSumPow2 / totalNumOfCells.toDouble) - xMean * xMean )
 
         /*
         * We Copy every Cell to all possible neigbours internally.
@@ -353,8 +337,11 @@ class Hotspots() extends Serializable {
                         }
                     }
 
-                    val numerator   = sumWijXj - xMean * sumWij
-                    val denominator = sMean * math.sqrt((totalNumOfCells * sumWijP2 - sumWij * sumWij) / (totalNumOfCells - 1) )
+                    val numerator   = sumWijXj - xMeanBD.value * sumWij
+                    val denominator = sMeanBD.value * math.sqrt((totalNumOfCells * sumWijP2 - sumWij * sumWij) / (totalNumOfCells - 1) )
+
+                    //val numerator   = sumWijXj - xMean * sumWij
+                    //val denominator = sMean * math.sqrt((totalNumOfCells * sumWijP2 - sumWij * sumWij) / (totalNumOfCells - 1) )
                     val gi = numerator / denominator
 
                     (cellID, gi)
@@ -372,22 +359,21 @@ class Hotspots() extends Serializable {
                 else if(a._2 < b._2)
                     -1
                 else
-                    0
+                     0
             }
         }
 
         //Array[(cellID, Score)]
         val top_k_GiArr = giStarRDD.top(top_k_hotSpots)(sortByMaxGi)
-        cellRDD_2.unpersist()
 
-        toSpatialObjLst(top_k_GiArr, gsCell, startX, startY, unionCells)
+        cellRDD_2.unpersist()
+        xMeanBD.destroy()
+        sMeanBD.destroy()
+
+        toGeomScoreArr(top_k_GiArr, gsCell, startX, startY, unionCells)
     }
 
 }
-
-
-
-
 
 
 

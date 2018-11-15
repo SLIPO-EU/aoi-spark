@@ -1,9 +1,12 @@
 package io
 
-import java.io.{FileNotFoundException, PrintWriter}
+import java.io.{File, FileNotFoundException, IOException, PrintWriter}
 
 import DBPOI.DBPOI
+import com.vividsolutions.jts.geom.Geometry
+import com.vividsolutions.jts.io.WKTWriter
 import org.apache.spark.rdd.RDD
+
 
 object Out {
 
@@ -27,7 +30,6 @@ object Out {
         }
     }
 
-
     def clusterToStr(cluster: Array[DBPOI]): String = {
         var s = ""
         for(poi <- cluster ){
@@ -46,6 +48,22 @@ object Out {
         }
         .saveAsTextFile(outputFile)
     }
+
+    @throws[IOException]
+    def write_hotspots(geomArr: Array[(Int, Geometry, Double)], outputFile: String, delimiter: String): Unit = {
+
+        val wktWriter = new WKTWriter()
+
+        //Output to File
+        writeToFile(new File(outputFile)) {
+            pw: PrintWriter => {
+                geomArr.foreach{
+                    case (id, geom, score) => pw.println(id + delimiter + wktWriter.write(geom) + delimiter + score )
+                }
+            }
+        }
+    }
+
 }
 
 

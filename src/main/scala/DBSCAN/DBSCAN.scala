@@ -9,8 +9,8 @@ package DBSCAN
 import DBPOI.DBPOI
 import MySparkContext.mySparkContext
 import com.vividsolutions.jts.geom.{Coordinate, Envelope, GeometryFactory, Point}
-import gr.athenarc.imsi.slipo.analytics.loci.POI
 
+import Spatial.POI
 import org.apache.spark.api.java.JavaRDD
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
@@ -68,9 +68,8 @@ class DBSCAN() extends Serializable {
 
         val pointRDD = poiRDD.map{
             poi => {
-                val point = poi.getPoint
-
-                point.setUserData(poi.getId)
+                val point = poi.geometry.asInstanceOf[Point]
+                point.setUserData(poi.id)
                 point
             }
         }
@@ -167,7 +166,7 @@ class DBSCAN() extends Serializable {
     /*
     * Performs DBSCAN and Returns the clusters.
     * */
-    def dbclusters(pointRDD_0: RDD[Point], eps: Double, minPts: Int) = {
+    def dbclusters(pointRDD_0: RDD[Point], eps: Double, minPts: Int) : RDD[(String, Array[DBPOI])] = {
 
         val pointRDD_1 = new JavaRDD[Point](pointRDD_0)
         val pointRDD = new PointRDD(pointRDD_1)
