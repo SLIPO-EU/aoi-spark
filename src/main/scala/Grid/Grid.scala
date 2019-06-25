@@ -50,5 +50,5 @@ case class Grid(val poiArrBuf: ArrayBuffer[DBPOI], val eps: Double){
         }
 
     }
-
 }
+
