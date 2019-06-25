@@ -87,6 +87,5 @@ object hotspots {
 
         mySparkSession.spark_session.stop()
     }
-
+    
 }
-
