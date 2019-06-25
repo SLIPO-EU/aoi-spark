@@ -76,5 +76,3 @@ case class LDA() extends Serializable {
     }
 
 }
-
-
