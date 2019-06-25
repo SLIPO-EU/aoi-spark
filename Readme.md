@@ -28,7 +28,7 @@ How to run Hotspots-Distributed:
 
      ./spark-submit --class runnables.(runnable) --master local[*]  --driver-memory 4g --executor-memory 4g  path-to-generated-jar-file-from-Step-3.jar  path-to-config.properties-File
  
-    where --class refers to the main runable class e.g:(runnables.hotspots, runnables.dbscan or runnables.lda).
+    where --class refers to the main runable class e.g:(hotspots, dbscan or lda).
 
 ### License
 
