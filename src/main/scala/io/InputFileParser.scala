@@ -271,4 +271,3 @@ class InputFileParser(val propertiesFile: String) extends Serializable {
 
 }
 
-
