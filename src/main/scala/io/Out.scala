@@ -46,6 +46,7 @@ object Out {
                 clusterName + ";" + this.clusterToStr(cluster) + ";" + cluster.size
             }
         }
+        //.coalesce(1)
         .saveAsTextFile(outputFile)
     }
 

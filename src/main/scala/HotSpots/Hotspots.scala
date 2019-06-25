@@ -7,11 +7,13 @@ package HotSpots
 * Authors: Panagiotis Kalampokis, Dr. Dimitris Skoutas
 * */
 
-import MySparkContext.mySparkContext
+import mySparkSession.mySparkSession
 import com.vividsolutions.jts.geom.{Coordinate, Geometry, GeometryFactory}
 import Spatial._
 import org.apache.spark.rdd.RDD
 import org.apache.spark.storage.StorageLevel._
+
+import scala.collection.mutable
 import scala.collection.mutable.HashMap
 
 
@@ -143,66 +145,27 @@ class Hotspots() extends Serializable {
 
 
     def hotSpots(
-                 inputFile: String,
+                  poiRDD: RDD[(String, (Double, Double, mutable.HashMap[String, Object]))],
+                  score_col: String,
 
-                 //Columns
-                 lonCol: Int,
-                 latCol: Int,
-                 scoreCol: Int,
-                 keywordCol: Int,
-                 userKeyWords: Array[String],
-
-                 //Seperators
-                 columnSep: String,
-                 keywordSep: String,
-
-                 gsCell : Double,
-                 pSize_k: Int,
-                 top_k : Int,
-                 nbCellWeight: Double,
-                 unionCells: Boolean) : Array[(Int, Geometry, Double)] = {
+                  gsCell : Double,
+                  pSize_k: Int,
+                  top_k : Int,
+                  nbCellWeight: Double,
+                  unionCells: Boolean
+                ) : Array[(Int, Geometry, Double)] = {
 
 
-        val inputRDD = mySparkContext.sc.textFile(inputFile)
-                                     .map{
-                                         line => {
-                                             var lon      = 0.0
-                                             var lat      = 0.0
-                                             var score    = 0.0
-                                             var strArr   = Array.empty[String]
+        val poiRDD_2 = poiRDD.map{
+            case (id, (lon, lat, hm)) => {
+                if(hm("__include_poi__").asInstanceOf[Boolean])
+                    (lon, lat, hm(score_col).asInstanceOf[Double])
+                else
+                    (lon, lat, 0.0)
+            }
+        }
 
-                                             try {
-                                                 val arr  = line.split(columnSep)
-
-                                                 lon = arr(lonCol).toDouble
-                                                 lat = arr(latCol).toDouble
-
-                                                 if(scoreCol != -1)                      //It Has Score Column!
-                                                     score = arr(scoreCol).toDouble
-                                                 else
-                                                     score = 1.0
-
-                                                 if(userKeyWords.nonEmpty){      //If User has specified keywords for filtering.
-
-                                                     if(keywordCol != -1){       //It has keyWord Column!
-
-                                                         strArr = arr(keywordCol).split(keywordSep)
-
-                                                         if(strArr.intersect(userKeyWords).isEmpty)
-                                                             score = 0.0
-                                                     }
-                                                 }
-
-                                                 (lon, lat, score)
-                                             }
-                                             catch {
-                                                 case e: Exception => (-200.0 , -200.0, -1.0)
-                                             }
-                                         }
-                                     }
-                                     .filter(x => x._1 >= -180.0 )      //CellID Should be >= 0L
-
-        findHotSpots(inputRDD, gsCell, pSize_k, top_k, nbCellWeight, unionCells)
+        findHotSpots(poiRDD_2, gsCell, pSize_k, top_k, nbCellWeight, unionCells)
     }
 
 
@@ -246,11 +209,8 @@ class Hotspots() extends Serializable {
             (s1, s2) => (s1._1 + s2._1, s1._2 + s2._2, s1._3 + s2._3)
         )
 
-        val xMeanBD =  mySparkContext.sc.broadcast(totalScoreSum / totalNumOfCells.toDouble)
-        //val xMean = totalScoreSum / totalNumOfCells.toDouble
-
-        val sMeanBD = mySparkContext.sc.broadcast(math.sqrt( (totalScoreSumPow2 / totalNumOfCells.toDouble) - xMeanBD.value * xMeanBD.value))
-        //val sMean = math.sqrt( (totalScoreSumPow2 / totalNumOfCells.toDouble) - xMean * xMean )
+        val xMeanBD =  mySparkSession.sparkContext.broadcast(totalScoreSum / totalNumOfCells.toDouble)
+        val sMeanBD = mySparkSession.sparkContext.broadcast(math.sqrt( (totalScoreSumPow2 / totalNumOfCells.toDouble) - xMeanBD.value * xMeanBD.value))
 
         /*
         * We Copy every Cell to all possible neigbours internally.
@@ -339,9 +299,6 @@ class Hotspots() extends Serializable {
 
                     val numerator   = sumWijXj - xMeanBD.value * sumWij
                     val denominator = sMeanBD.value * math.sqrt((totalNumOfCells * sumWijP2 - sumWij * sumWij) / (totalNumOfCells - 1) )
-
-                    //val numerator   = sumWijXj - xMean * sumWij
-                    //val denominator = sMean * math.sqrt((totalNumOfCells * sumWijP2 - sumWij * sumWij) / (totalNumOfCells - 1) )
                     val gi = numerator / denominator
 
                     (cellID, gi)
@@ -374,7 +331,4 @@ class Hotspots() extends Serializable {
     }
 
 }
-
-
-
 

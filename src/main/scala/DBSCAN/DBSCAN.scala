@@ -7,10 +7,9 @@ package DBSCAN
 * */
 
 import DBPOI.DBPOI
-import MySparkContext.mySparkContext
+import mySparkSession.mySparkSession
 import com.vividsolutions.jts.geom.{Coordinate, Envelope, GeometryFactory, Point}
 
-import Spatial.POI
 import org.apache.spark.api.java.JavaRDD
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
@@ -54,112 +53,46 @@ class DBSCAN() extends Serializable {
         env
     }
 
-    /*
-    * Performs DBSCAN in an RDD[Pois]
-    *
-    * */
-    def dbscan(//An RDD of Pois
-               poiRDD: RDD[POI],
-
-               //DBSCAN Parameters.
-               eps: Double,
-               minPts: Int
-              ) = {
-
-        val pointRDD = poiRDD.map{
-            poi => {
-                val point = poi.geometry.asInstanceOf[Point]
-                point.setUserData(poi.id)
-                point
-            }
-        }
-
-        dbclusters(pointRDD, eps, minPts)
-    }
 
     /*
     * Performs DBSCAN from the input File & Columns.
     *
     */
-    def dbscan(inputFile: String,
-
-               id_Col      : Int,
-               lon_Col     : Int,
-               lat_Col     : Int,
-               keyword_Col : Int,
-
-               //Seperators
-               col_Sep     : String,
-               keywordSep  : String,
-
-               //User Keywords.
-               userKeyWords: Array[String],
-
-               //DBSCAN Parameters.
-               eps: Double,
-               minPts: Int
-
+    def dbscan(pointRDD: RDD[(String, (Double, Double, HashMap[String, Object]))],
+                 //DBSCAN Parameters.
+                 eps: Double,
+                 minPts: Int
               ) = {
 
-        //RDD[Point]
-        val pointRDD = mySparkContext.sc.textFile(inputFile)
-                                     .mapPartitions{
-                                         lineIter => {
-                                             val geometryFactory = new GeometryFactory()
+        val pointRDD_2 = pointRDD.mapPartitions{
+            iter => {
+                val geometryFactory = new GeometryFactory()
+                val poi_arr = ArrayBuffer[Point]()
 
-                                             lineIter.map{
-                                                 line => {
-                                                     try{
-                                                         val arr = line.split(col_Sep)
+                for((id, (lon, lat, hm)) <- iter){
+                    if(hm("__include_poi__").asInstanceOf[Boolean]){
+                        val point = geometryFactory.createPoint(new Coordinate(lon, lat))
+                        point.setUserData(id)
+                        poi_arr += point
+                    }
+                }
 
-                                                         //If User has specified keywords.
-                                                         if (keyword_Col >= 0 && userKeyWords.nonEmpty ) {
-                                                             val poi_keywords = arr(keyword_Col).split(keywordSep)
+                poi_arr.toIterator
+            }
+        }
 
-                                                             //If poi meets at least one of specified keywords, include it!
-                                                             if(poi_keywords.intersect(userKeyWords).nonEmpty){
 
-                                                                 val id  = arr(id_Col)
-                                                                 val lon = arr(lon_Col).toDouble
-                                                                 val lat = arr(lat_Col).toDouble
-                                                                 val point = geometryFactory.createPoint(new Coordinate(lon, lat))
+        val finalRDD = dbclusters(pointRDD_2, eps, minPts)
 
-                                                                 point.setUserData(id)
-                                                                 point
-                                                             }
-                                                             else{  //Else If Poi doesn't meet the specified keywords, Sent it to Erroneous Queue...
-                                                                 val point = geometryFactory.createPoint(new Coordinate())
+        val finalRDD_2 = finalRDD.flatMap{
+            case (cID, arr_dbpoi) => {
+                arr_dbpoi.map(dbpoi => (dbpoi.poiId, cID))
+            }
+        }
 
-                                                                 point.setUserData("error")
-                                                                 point
-                                                             }
-                                                         }
-                                                         else{  //Include them all
-                                                             val id = arr(id_Col)
-                                                             val lon = arr(lon_Col).toDouble
-                                                             val lat = arr(lat_Col).toDouble
-                                                             val point = geometryFactory.createPoint(new Coordinate(lon, lat))
+        val finalRDD_3 = pointRDD.join(finalRDD_2)
+        finalRDD_3
 
-                                                             point.setUserData(id)
-                                                             point
-                                                         }
-                                                     }
-                                                     catch {
-                                                         case e: Exception => {
-                                                             val point = geometryFactory.createPoint(new Coordinate())
-                                                             point.setUserData("error")
-
-                                                             point
-                                                         }
-                                                     }
-                                                 }
-                                             }
-                                         }
-                                     }
-                                     //Filter Out all Erroneous Pois.
-                                     .filter(point => point.getUserData.asInstanceOf[String] != "error")
-
-        dbclusters(pointRDD, eps, minPts)
     }
 
 
@@ -178,7 +111,7 @@ class DBSCAN() extends Serializable {
 
         //val boundaryEnvelopes = pointRDD.getPartitioner.getGrids
         //writeBoundaryEnvsToFile(pointRDD, outputFile + "_Envelopes_only.txt", geometryFactory)
-        this.spatialPartitionerBD = mySparkContext.sc.broadcast(pointRDD.getPartitioner)
+        this.spatialPartitionerBD = mySparkSession.sparkContext.broadcast(pointRDD.getPartitioner)
 
         //RDD[partitionID, dbpoi]
         val flatMappedRDD = pointRDD.spatialPartitionedRDD
@@ -297,8 +230,8 @@ class DBSCAN() extends Serializable {
 
 
         //Broadcast commonNames and PoisToKeep
-        this.mergingClusterNameVecBD = mySparkContext.sc.broadcast(mergingClusterNameVec)
-        this.boundaryPoisToKeepHMBD  = mySparkContext.sc.broadcast(boundaryPoisToKeepHM)
+        this.mergingClusterNameVecBD = mySparkSession.sparkContext.broadcast(mergingClusterNameVec)
+        this.boundaryPoisToKeepHMBD  = mySparkSession.sparkContext.broadcast(boundaryPoisToKeepHM)
 
         val preFinalClusterRDD = this.clusterRDD.mapPartitions{
             poiIter => {
@@ -346,6 +279,7 @@ class DBSCAN() extends Serializable {
             //CombOp
             (hm1, hm2) => hm1 ++= hm2
         )
+        .filter(_._2.size >= minPts)
 
         //RDD[(String, Array[POI])]
         dbclusterRDD.mapValues(_.values.toArray)

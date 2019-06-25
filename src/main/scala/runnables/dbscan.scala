@@ -1,10 +1,10 @@
 package runnables
 
+import DBPOI.DBPOI
 import DBSCAN.DBSCAN
-import MySparkContext.mySparkContext
-import io.InputFileParser
-import io.Out._
-import org.apache.spark.storage.StorageLevel._
+import io.{InputFileParser, Spatial}
+import mySparkSession.mySparkSession
+import io.Out
 
 
 object dbscan {
@@ -31,6 +31,9 @@ object dbscan {
         val latCol     = inputFileParser.getLat_Col()
         val scoreCol   = inputFileParser.getScore_Col()
         val keyWordCol = inputFileParser.getkeyWord_Col()
+        val otherCols  = inputFileParser.getOtherCols()
+
+        val colMap     = inputFileParser.getColMap()
 
         val colSep       = inputFileParser.getCol_Sep()
         val keyWordSep   = inputFileParser.getkeyWord_Sep()
@@ -47,48 +50,79 @@ object dbscan {
         val dbeps  = inputFileParser.getEpsilon()
         val minPts = inputFileParser.getMinPts()
 
-        val dbscan = new DBSCAN()
+        //EPSG
+        val source_crs = inputFileParser.getSourceCrs()
+        val target_crs = inputFileParser.getTargetCrs()
 
-        //RDD[clusterID, Array[Poi]]
-        val dbClusterRDD = dbscan.dbscan(
+        val spatial = Spatial()
+        val poiRDD  = spatial.getLonLatRDD(
             inputFile,
             idCol,
             lonCol,
             latCol,
+            scoreCol,
             keyWordCol,
+            userKeywords,
+            colMap,
+            otherCols,
             colSep,
             keyWordSep,
-            userKeywords,
-            dbeps,
-            minPts
-        ).persist(MEMORY_AND_DISK)
+            source_crs,
+            target_crs
+        )
+
+
+        val dbscan = new DBSCAN()
+        val finalRDD = dbscan.dbscan(pointRDD = poiRDD, eps = dbeps, minPts = minPts)
+
+        /*
+        finalRDD.take(20).foreach{
+            t => {
+                var s = s"(${t._1})(${t._2._1._1}, ${t._2._1._2}):"
+
+                var s_map = ""
+                t._2._1._3.foreach{
+                    case (k, v) => {
+                        if(v.isInstanceOf[Array[String]]){
+                            s_map += (k + " --> " + v.asInstanceOf[Array[String]].mkString(",")) + ", "
+                        }
+                        else{
+                            s_map += k + " --> " + v.toString + ", "
+                        }
+                    }
+                }
+
+                println(s"$s ($s_map)(${t._2._2})")
+            }
+        }
+
+        println()
+        println("Total Time = " + (System.nanoTime() - startTime) / 1000000000L + " sec")
+        */
+
+
+        val groupedRDD = finalRDD.map{
+            case (id, ((lon, lat, hm), cID)) => {
+                (cID, DBPOI(id, lon, lat))
+            }
+        }.aggregateByKey(Array[DBPOI]())(_ :+ _, _ ++ _)
 
 
         //Write clusters to Output.
-        writeClusters(dbClusterRDD, cl_outputFile)
+        Out.writeClusters(groupedRDD, cl_outputFile)
 
-        /*
-        * Calculate the TotalNumber of Clusters & Total number of Clustered Pois
-        * */
-        val (totalNumOfClusters, totalNumOfClusteredPois) = dbClusterRDD.aggregate((0, 0))(
-            //SeqOp
-            (z, x) => {
-                (z._1 + 1, z._2 + x._2.size)
-            },
-
-            //CombOp
+        val (numOfClusters, numOfClusteredPois) = groupedRDD.aggregate(0, 0)(
+            (z, x) => (z._1 + 1, z._2 + x._2.size),
             (z1, z2) => (z1._1 + z2._1, z1._2 + z2._2)
-
         )
 
-        println("Total #of Clusters = " + totalNumOfClusters)
-        println("Total #of Clustered Pois = " + totalNumOfClusteredPois)
+        println(s"NumOfClusters = $numOfClusters")
+        println(s"NumOfClusteredPois = $numOfClusteredPois")
+
         println("Total Time = " + (System.nanoTime() - startTime) / 1000000000L + " sec")
 
-
-        dbClusterRDD.unpersist()
         dbscan.clear()
-        mySparkContext.sc.stop()
+        mySparkSession.spark_session.stop()
     }
 
 }

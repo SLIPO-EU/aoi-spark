@@ -2,6 +2,7 @@ package io
 
 import java.io.FileInputStream
 import java.util.Properties
+import scala.io.Source
 
 /*
 * Here you Manage, what to Read from Properties File.
@@ -16,11 +17,14 @@ class InputFileParser(val propertiesFile: String) extends Serializable {
     protected var cl_outputFile = ""
 
     //Columns
-    protected var id_Col      = -1
-    protected var lon_Col     = -1
-    protected var lat_Col     = -1
-    protected var score_Col   = -1
-    protected var keyword_Col = -1
+    protected var id_Col      = ""
+    protected var lon_Col     = ""
+    protected var lat_Col     = ""
+    protected var score_Col   = ""
+    protected var keyword_Col = ""
+    protected var other_Cols  = Array[String]()
+
+    protected var colMap      = Map[String, Int]()
 
     /*
     * Delimeters
@@ -53,6 +57,24 @@ class InputFileParser(val propertiesFile: String) extends Serializable {
     private var db_eps = 0.01
     private var minPts = 10
 
+    //LDA Variables
+    private var numOfTopics = 5
+
+    private var source_crs = "EPSG:4326"
+    private var target_crs = "EPSG:4326"
+
+
+    def isInt(str: String) = {
+        try{
+            str.toInt
+            true
+        }
+        catch {
+            case e: Exception => {
+                false
+            }
+        }
+    }
 
     @throws(classOf[Exception])
     def loadPropertiesFile() : Boolean = {
@@ -71,40 +93,34 @@ class InputFileParser(val propertiesFile: String) extends Serializable {
             this.cl_outputFile = prop.getProperty("cl-output_file")
 
             //The Columns
-            this.id_Col  = prop.getProperty("column_id") match {
-                case "" => -1
-                case s  => s.toInt - 1
-            }
+            this.id_Col  = prop.getProperty("column_id")
 
-            this.lon_Col  = prop.getProperty("column_lon").toInt - 1     //Required!
-            this.lat_Col  = prop.getProperty("column_lat").toInt - 1     //Required!
+            this.lon_Col  = prop.getProperty("column_lon")
+            this.lat_Col  = prop.getProperty("column_lat")
 
             //Optional
-            this.score_Col   = prop.getProperty("column_score") match {
-                case "" => -1
-                case s  => s.toInt - 1
+            prop.getProperty("column_score") match {
+                case "" => this.score_Col = "__score_col__"
+                case s  => this.score_Col = s
             }
 
             //Optional
-            this.keyword_Col = prop.getProperty("column_keywords") match {
-                case "" => -1
-                case s  => s.toInt - 1
+            this.keyword_Col = prop.getProperty("column_keywords")
+
+            //Other Columns to Keep
+            prop.getProperty("other_cols") match {
+                case "" => this.other_Cols = Array.empty[String]
+                case s  => this.other_Cols = s.split(",")
             }
 
             //Delimeters
             this.col_Sep     = prop.getProperty("csv_delimiter")
             this.keyword_Sep = prop.getProperty("keyword_delimiter")
 
-
             //User specified KeyWords
             prop.getProperty("keywords") match {
                 case "" => this.user_Keywords = Array.empty[String]
                 case s  => this.user_Keywords = s.split(",")
-            }
-
-            if(this.user_Keywords.nonEmpty && this.keyword_Col == -1){
-                println("You have specified keywords for Filtering, But you haven't specified what is the KeyWord Column, in the Column Order.")
-                throw new Exception
             }
 
             /*
@@ -127,6 +143,42 @@ class InputFileParser(val propertiesFile: String) extends Serializable {
             this.minPts = prop.getProperty("cl-minPts").toInt
 
 
+            /*
+            * LDA Parameters
+            */
+            this.numOfTopics = prop.getProperty("numOfTopics").toInt
+
+
+            val firstLine = {
+                val src = Source.fromFile(inputFile)
+                val line = src.getLines.next()
+                src.close
+                line
+            }
+
+            val colArr = firstLine.split(col_Sep).zipWithIndex
+
+            //If all Columns are expressed as Integers
+            if(isInt(lon_Col))
+                this.colMap = colArr.map(t => (t._2.toString, t._2)).toMap
+
+            else   //We have Column Names as Strings.
+                this.colMap = colArr.toMap
+
+
+            prop.getProperty("source_crs") match {
+                case "" => ()
+                case s  => this.source_crs = s
+            }
+
+            prop.getProperty("target_crs") match {
+                case "" => ()
+                case s  => this.target_crs = s
+            }
+
+
+            //println(this.colMap)
+
             //General Variables
             println("Input File = " + this.inputFile)
             println("HS-Output File = " + this.hs_outputFile)
@@ -136,6 +188,7 @@ class InputFileParser(val propertiesFile: String) extends Serializable {
             println("lat Col = " + this.lat_Col)
             println("Score Col = " + this.score_Col)
             println("keyWord Col = " + this.keyword_Col)
+            println("Other Columns = " + this.other_Cols.mkString(","))
 
             println("Col Sep = " + this.col_Sep)
             println("KeyWord Sep = " + this.keyword_Sep)
@@ -155,6 +208,14 @@ class InputFileParser(val propertiesFile: String) extends Serializable {
             println(s"DBSCAN epsilon = ${this.db_eps}")
             println(s"DBSCAN minPts  = ${this.minPts}")
 
+            //LDA Variales
+            println(s"LDA NumOfTopics = ${this.numOfTopics}")
+
+
+            println(s"Source crs = ${this.source_crs}")
+            println(s"Target crs = ${this.target_crs}")
+
+
             inputStream.close()
             true
         }
@@ -171,11 +232,14 @@ class InputFileParser(val propertiesFile: String) extends Serializable {
 
 
     def getPropertiesFile() : String = this.propertiesFile
-    def getID_Col(): Int = this.id_Col
-    def getLon_Col(): Int = this.lon_Col
-    def getLat_Col(): Int = this.lat_Col
-    def getScore_Col(): Int = this.score_Col
-    def getkeyWord_Col(): Int = this.keyword_Col
+    def getID_Col(): String = this.id_Col
+    def getLon_Col(): String = this.lon_Col
+    def getLat_Col(): String = this.lat_Col
+    def getScore_Col(): String = this.score_Col
+    def getOtherCols(): Array[String] = this.other_Cols
+
+    def getkeyWord_Col(): String = this.keyword_Col
+    def getColMap(): scala.collection.immutable.Map[String, Int] = this.colMap
 
     def getCol_Sep(): String = this.col_Sep
     def getkeyWord_Sep(): String = this.keyword_Sep
@@ -198,8 +262,13 @@ class InputFileParser(val propertiesFile: String) extends Serializable {
     def getEpsilon() : Double = this.db_eps
     def getMinPts()  : Int    = this.minPts
 
+    //LDA
+    def getNumOfTopics(): Int = this.numOfTopics
+
+    //EPSG
+    def getSourceCrs(): String = this.source_crs
+    def getTargetCrs(): String = this.target_crs
+
 }
-
-
 
 

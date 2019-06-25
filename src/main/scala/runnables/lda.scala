@@ -1,10 +1,12 @@
 package runnables
 
-import HotSpots._
-import io.{InputFileParser, Spatial, Out}
+import DBSCAN.DBSCAN
+import io.{InputFileParser, Spatial}
 import mySparkSession.mySparkSession
+import LDA.LDA
 
-object hotspots {
+
+object lda {
 
     def main(args: Array[String]): Unit = {
 
@@ -47,6 +49,9 @@ object hotspots {
         val dbeps  = inputFileParser.getEpsilon()
         val minPts = inputFileParser.getMinPts()
 
+        //LDA parameters
+        val numOfTopics = inputFileParser.getNumOfTopics()
+
         //EPSG
         val source_crs = inputFileParser.getSourceCrs()
         val target_crs = inputFileParser.getTargetCrs()
@@ -63,29 +68,30 @@ object hotspots {
             colMap,
             otherCols,
             colSep,
-            keyWordSep,
-            source_crs,
-            target_crs
+            keyWordSep
         )
 
 
-        val hotSpots = new Hotspots()
+        val dbscan = new DBSCAN()
+        val finalRDD = dbscan.dbscan(pointRDD = poiRDD, eps = dbeps, minPts = minPts)
 
-        val hotSpotsArr = hotSpots.hotSpots(
-            poiRDD,
-            scoreCol,
-            cell_size,
-            partition_size_k,
-            hs_top_k,
-            hs_nb_cell_weight,
-            hs_printAsUnionCells
-        )
 
-        Out.write_hotspots(hotSpotsArr, hs_outputFile, delimiter = ";" )
+        val label_kwd_RDD = finalRDD.map(t => (t._2._2, t._2._1._3(keyWordCol).asInstanceOf[Array[String]]) )
+        val groupedByLabel = label_kwd_RDD.aggregateByKey(scala.collection.mutable.ArrayBuffer[String]())(_ ++= _, _ ++= _)
+                                          .mapValues(_.toArray)
 
+        val lda = LDA()
+        val (topicDF, ldaDF) = lda.lda(groupedByLabel, numOfTopics)
+
+        topicDF.show(false)
+        ldaDF.show()
+
+        println()
         println("Total Time = " + (System.nanoTime() - startTime) / 1000000000L + " sec")
 
+        dbscan.clear()
         mySparkSession.spark_session.stop()
+
     }
 
 }

@@ -1,5 +1,11 @@
 ### Overview
-This is part of the Slipo project for mining Locations of Interest. It provides a parallel and distributed implementation for finding hotspots and POI clusters, using Apache Spark.
+This is part of the Slipo project for mining Locations of Interest. It provides distributed implementations in Apache Spark for the following operations:
+
+1. Find hotspots from a collection of Points in 2D space using the Getis-Ord (Gi* statistic).
+
+2. Find clusters implementing a distributed version of DBSCAN.
+
+3. Performs LDA(latent Dirichlet allocation) in a collection of documents.
 
 ### Prerequisites
 
@@ -20,7 +26,11 @@ How to run Hotspots-Distributed:
 
 5. Run spark-submit script as follows:
      ./spark-submit --class runnables.hotspots --master local[*]  --driver-memory 4g --executor-memory 4g  path-to-generated-jar-file-from-Step-3.jar  path-to-config.properties-File
-     ./spark-submit --class runnables.dbscan   --master local[*]  --driver-memory 4g --executor-memory 4g  path-to-generated-jar-file-from-Step-3.jar  path-to-config.properties-File 
+
+     ./spark-submit --class runnables.dbscan   --master local[*]  --driver-memory 4g --executor-memory 4g  path-to-generated-jar-file-from-Step-3.jar  path-to-config.properties-File
+
+     ./spark-submit --class runnables.lda   --master local[*]  --driver-memory 4g --executor-memory 4g  path-to-generated-jar-file-from-Step-3.jar  path-to-config.properties-File
+ 
     where --class refers to the main class (runnables.hotspots).
 
 ### License
