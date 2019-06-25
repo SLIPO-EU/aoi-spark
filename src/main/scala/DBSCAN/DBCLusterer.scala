@@ -79,5 +79,6 @@ case class DBCLusterer(val eps: Double, val minPts: Int) {
 
         cluster
     }
-
+    
 }
+
