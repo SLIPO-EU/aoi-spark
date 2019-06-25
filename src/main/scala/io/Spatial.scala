@@ -130,6 +130,5 @@ case class Spatial() extends Serializable {
                                        }
         pointRDD_0
     }
-
 }
 
