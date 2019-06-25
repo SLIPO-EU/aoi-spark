@@ -25,6 +25,7 @@ How to run Hotspots-Distributed:
 4. Go to the installation folder of spark (e.g., cd spark-version.../bin).
 
 5. Run spark-submit script as follows:
+
      ./spark-submit --class runnables.hotspots --master local[*]  --driver-memory 4g --executor-memory 4g  path-to-generated-jar-file-from-Step-3.jar  path-to-config.properties-File
 
      ./spark-submit --class runnables.dbscan   --master local[*]  --driver-memory 4g --executor-memory 4g  path-to-generated-jar-file-from-Step-3.jar  path-to-config.properties-File
