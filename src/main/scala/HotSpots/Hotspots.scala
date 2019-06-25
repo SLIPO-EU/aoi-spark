@@ -329,6 +329,4 @@ class Hotspots() extends Serializable {
 
         toGeomScoreArr(top_k_GiArr, gsCell, startX, startY, unionCells)
     }
-
 }
-
