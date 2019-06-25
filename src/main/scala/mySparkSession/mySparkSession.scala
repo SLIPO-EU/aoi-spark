@@ -18,4 +18,3 @@ object mySparkSession {
 
     val sparkContext = spark_session.sparkContext
 }
-
