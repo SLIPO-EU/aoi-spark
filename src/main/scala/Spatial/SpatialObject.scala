@@ -19,6 +19,4 @@ class SpatialObject(
         else if (this.score == o.score) 0
         else                            1
     }
-
 }
-
