@@ -11,5 +11,3 @@ case class DBPOI(val poiId: String,
     var isBoundary  = false
     var clusterName = ""
 }
-
-
