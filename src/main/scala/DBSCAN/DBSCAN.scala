@@ -298,6 +298,3 @@ class DBSCAN() extends Serializable {
     }
 
 }
-
-
-
