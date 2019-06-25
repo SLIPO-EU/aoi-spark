@@ -20,3 +20,4 @@ class SpatialObject(
         else                            1
     }
 }
+
