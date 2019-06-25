@@ -11,4 +11,3 @@ class POI(
           score: Double,
           geometryFactory: GeometryFactory
          ) extends SpatialObject(id, name, keywords, score, geometryFactory.createPoint(new Coordinate(x, y)))
-
