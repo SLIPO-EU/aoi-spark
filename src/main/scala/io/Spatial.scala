@@ -10,7 +10,6 @@ import org.osgeo.proj4j.{BasicCoordinateTransform, CRSFactory, ProjCoordinate}
 
 case class Spatial() extends Serializable {
 
-
     //RDD[id, (lon, lat, HashMap[col_id, value])]
     def getLonLatRDD(inputFile: String,
                      id_Col      : String,
@@ -29,7 +28,7 @@ case class Spatial() extends Serializable {
                     ) : RDD[(String, (Double, Double, mutable.HashMap[String, Object]))] = {
 
 
-        val pointRDD_0 = mySparkSession.sparkContext.textFile(inputFile)
+        val pointRDD_0 = mySparkSession.sparkContext.textFile(inputFile, 100)
                                        .mapPartitionsWithIndex{
                                            (p_id, lineIter) => {
 

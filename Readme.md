@@ -20,13 +20,15 @@ How to run Hotspots-Distributed:
 
 2. Open terminal inside root folder.
 
-3. type: sbt clean assembly to generate the jar file.
+3. sbt
 
-4. Go to the installation folder of spark (e.g., cd spark-version.../bin).
+4. set unmanagedBase := file("myJars")
+
+4. package
 
 5. Run spark-submit script as follows:
 
-     ./spark-submit --class runnables.(runnable) --master local[*]  --driver-memory 4g --executor-memory 4g  path-to-generated-jar-file-from-Step-3.jar  path-to-config.properties-File
+     ./spark-submit --class runnables.(runnable) --master yarn  --driver-memory 4g --executor-memory 4g  path-to-generated-jar-file-from-Step-3.jar  path-to-config.properties-File
  
     where --class refers to the main runable class e.g:(hotspots, dbscan or lda).
 

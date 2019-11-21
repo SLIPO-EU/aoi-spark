@@ -1,8 +1,7 @@
 package io
 
-import java.io.FileInputStream
-import java.util.Properties
-import scala.io.Source
+import mySparkSession.mySparkSession
+import scala.collection.mutable.ArrayBuffer
 
 /*
 * Here you Manage, what to Read from Properties File.
@@ -77,153 +76,138 @@ class InputFileParser(val propertiesFile: String) extends Serializable {
     }
 
     @throws(classOf[Exception])
-    def loadPropertiesFile() : Boolean = {
+    def loadPropertiesFile() : (Boolean, ArrayBuffer[String]) = {
+
+        //Error logging
+        val logArrBuff = ArrayBuffer[String]()
+
+        val propertiesRDD = mySparkSession.sparkContext.textFile(this.propertiesFile)
+        val propArr = propertiesRDD.collect().filter(s => s.contains("=") && !s.startsWith("#"))
 
         try {
+            for(line <- propArr){
+                val arr = line.split("=", 2).map(s => s.trim)
+                arr(0) match {
+                    case "input_file" => this.inputFile = arr(1)
+                    case "hs-output_file" => this.hs_outputFile = arr(1)
+                    case "cl-output_file" => this.cl_outputFile = arr(1)
+                    case "column_id" => this.id_Col = arr(1)
+                    case "column_lon" => this.lon_Col = arr(1)
+                    case "column_lat" => this.lat_Col = arr(1)
 
-            val prop  = new Properties()
-            val inputStream = new FileInputStream(propertiesFile)
+                    //Optional
+                    case "column_score" => {
+                        arr(1) match {
+                            case "" => this.score_Col = "__score_col__"
+                            case s  => this.score_Col = s
+                        }
+                    }
+                    case "column_keywords" => this.keyword_Col = arr(1)
+                    case "other_cols" => {
+                        arr(1) match {
+                            case "" => this.other_Cols = Array.empty[String]
+                            case s  => this.other_Cols = s.split(",")
+                        }
+                    }
+                    //Delimeters
+                    case "csv_delimiter" => this.col_Sep = arr(1)
+                    case "keyword_delimiter" => this.keyword_Sep = arr(1)
 
-            //Load the Properties File
-            prop.load(inputStream)
+                    //User specified KeyWords
+                    case "keywords" => {
+                        arr(1) match {
+                            case "" => this.user_Keywords = Array.empty[String]
+                            case s  => this.user_Keywords = s.split(",")
+                        }
+                    }
 
-            //I/O Files
-            this.inputFile  = prop.getProperty("input_file")
-            this.hs_outputFile = prop.getProperty("hs-output_file")
-            this.cl_outputFile = prop.getProperty("cl-output_file")
+                    // Custom Grid Variables
+                    case "cell-eps" => this.cell_gs = arr(1).toDouble
+                    case "pSize_k"  => this.pSize_k = arr(1).toInt
 
-            //The Columns
-            this.id_Col  = prop.getProperty("column_id")
+                    //HotSpot Variables
+                    case "hs-top-k"               => this.hs_top_k = arr(1).toInt
+                    case "hs-nb-cell-weight"      => this.hs_nb_cell_weight = arr(1).toDouble
+                    case "hs-print-as-unioncells" => this.hs_print_as_unioncells = arr(1).toBoolean
 
-            this.lon_Col  = prop.getProperty("column_lon")
-            this.lat_Col  = prop.getProperty("column_lat")
+                    // DBSCAN Variables
+                    case "cl-eps"    => this.db_eps = arr(1).toDouble
+                    case "cl-minPts" => this.minPts = arr(1).toInt
 
-            //Optional
-            prop.getProperty("column_score") match {
-                case "" => this.score_Col = "__score_col__"
-                case s  => this.score_Col = s
+                    // LDA Parameters
+                    case "numOfTopics" => this.numOfTopics = arr(1).toInt
+
+                    //Source and Target crs.
+                    case "source_crs"  => {
+                        arr(1) match {
+                            case "" => ()
+                            case s  => this.source_crs = s
+                        }
+                    }
+                    case "target_crs" => {
+                        arr(1) match {
+                            case "" => ()
+                            case s  => this.target_crs = s
+                        }
+                    }
+                }
             }
 
-            //Optional
-            this.keyword_Col = prop.getProperty("column_keywords")
-
-            //Other Columns to Keep
-            prop.getProperty("other_cols") match {
-                case "" => this.other_Cols = Array.empty[String]
-                case s  => this.other_Cols = s.split(",")
-            }
-
-            //Delimeters
-            this.col_Sep     = prop.getProperty("csv_delimiter")
-            this.keyword_Sep = prop.getProperty("keyword_delimiter")
-
-            //User specified KeyWords
-            prop.getProperty("keywords") match {
-                case "" => this.user_Keywords = Array.empty[String]
-                case s  => this.user_Keywords = s.split(",")
-            }
-
-            /*
-            * Custom Grid Variables
-            */
-            this.cell_gs = prop.getProperty("cell-eps").toDouble
-            this.pSize_k = prop.getProperty("pSize_k").toInt
-
-            /*
-            * HotSpot Variables
-            */
-            this.hs_top_k = prop.getProperty("hs-top-k").toInt
-            this.hs_nb_cell_weight = prop.getProperty("hs-nb-cell-weight").toDouble
-            this.hs_print_as_unioncells = prop.getProperty("hs-print-as-unioncells").toBoolean
-
-            /*
-            * DBSCAN Variables
-            */
-            this.db_eps = prop.getProperty("cl-eps").toDouble
-            this.minPts = prop.getProperty("cl-minPts").toInt
-
-
-            /*
-            * LDA Parameters
-            */
-            this.numOfTopics = prop.getProperty("numOfTopics").toInt
-
-
-            val firstLine = {
-                val src = Source.fromFile(inputFile)
-                val line = src.getLines.next()
-                src.close
-                line
-            }
-
-            val colArr = firstLine.split(col_Sep).zipWithIndex
+            val firstLine = mySparkSession.sparkContext.textFile(this.inputFile).first()
+            val colArr = firstLine.split(this.col_Sep).zipWithIndex
 
             //If all Columns are expressed as Integers
-            if(isInt(lon_Col))
+            if(isInt(this.lon_Col)) {
                 this.colMap = colArr.map(t => (t._2.toString, t._2)).toMap
-
-            else   //We have Column Names as Strings.
+            } else {   //We have Column Names as Strings.
                 this.colMap = colArr.toMap
-
-
-            prop.getProperty("source_crs") match {
-                case "" => ()
-                case s  => this.source_crs = s
             }
-
-            prop.getProperty("target_crs") match {
-                case "" => ()
-                case s  => this.target_crs = s
-            }
-
-
-            //println(this.colMap)
 
             //General Variables
-            println("Input File = " + this.inputFile)
-            println("HS-Output File = " + this.hs_outputFile)
-            println("CL-Output File = " + this.cl_outputFile)
-            println("ID Col = " + this.id_Col)
-            println("Lon Col = " + this.lon_Col)
-            println("lat Col = " + this.lat_Col)
-            println("Score Col = " + this.score_Col)
-            println("keyWord Col = " + this.keyword_Col)
-            println("Other Columns = " + this.other_Cols.mkString(","))
+            logArrBuff += "Input File = " + this.inputFile
+            logArrBuff += "HS-Output File = " + this.hs_outputFile
+            logArrBuff += "CL-Output File = " + this.cl_outputFile
+            logArrBuff += "ID Col = " + this.id_Col
+            logArrBuff += "Lon Col = " + this.lon_Col
+            logArrBuff += "lat Col = " + this.lat_Col
+            logArrBuff += "Score Col = " + this.score_Col
+            logArrBuff += "keyWord Col = " + this.keyword_Col
+            logArrBuff += "Other Columns = " + this.other_Cols.mkString(",")
 
-            println("Col Sep = " + this.col_Sep)
-            println("KeyWord Sep = " + this.keyword_Sep)
-            println("User keyWords = " + this.user_Keywords.mkString(","))
+            logArrBuff += "Col Sep = " + this.col_Sep
+            logArrBuff += "KeyWord Sep = " + this.keyword_Sep
+            logArrBuff += "User keyWords = " + this.user_Keywords.mkString(",")
 
             //Custom Grid Variables
-            println(s"Cell size = ${this.cell_gs}")
-            println(s"Partition size  = ${this.pSize_k * this.cell_gs}")
+            logArrBuff += s"Cell size = ${this.cell_gs}"
+            logArrBuff += s"Partition size  = ${this.pSize_k * this.cell_gs}"
 
             //HotSpot Variables
-            println(s"HotSpots Top-k                  = ${this.hs_top_k}")
-            println(s"HotSpots NB_cell_weight         = ${this.hs_nb_cell_weight}")
-            println(s"HotSpots hs-print-as-unioncells = ${this.hs_print_as_unioncells}")
+            logArrBuff += s"HotSpots Top-k                  = ${this.hs_top_k}"
+            logArrBuff += s"HotSpots NB_cell_weight         = ${this.hs_nb_cell_weight}"
+            logArrBuff += s"HotSpots hs-print-as-unioncells = ${this.hs_print_as_unioncells}"
 
 
             //DBSCAN Variables
-            println(s"DBSCAN epsilon = ${this.db_eps}")
-            println(s"DBSCAN minPts  = ${this.minPts}")
+            logArrBuff += s"DBSCAN epsilon = ${this.db_eps}"
+            logArrBuff += s"DBSCAN minPts  = ${this.minPts}"
 
             //LDA Variales
-            println(s"LDA NumOfTopics = ${this.numOfTopics}")
+            logArrBuff += s"LDA NumOfTopics = ${this.numOfTopics}"
 
 
-            println(s"Source crs = ${this.source_crs}")
-            println(s"Target crs = ${this.target_crs}")
+            logArrBuff += s"Source crs = ${this.source_crs}"
+            logArrBuff += s"Target crs = ${this.target_crs}"
+            logArrBuff += "\n"
 
-
-            inputStream.close()
-            true
+            (true, logArrBuff)
         }
         catch {
             case e: Exception => {
+                logArrBuff += s"Error: ${e.printStackTrace()}"
                 e.printStackTrace()
                 println("An Error occured while oppening and reading the General Properties File! Please try again!")
-                false
+                (false, logArrBuff)
             }
         }
         finally {

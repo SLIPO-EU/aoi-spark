@@ -1,0 +1,16 @@
+{
+    "file": "hdfs:///user/../aoi-spark-2_2.11-0.1.jar",
+    "className": "Runnables.dbscan",
+    "args": ["hdfs:///user/../config.properties"],
+    "jars": [
+       "hdfs:///user/../myJars/geospark-1.2.0.jar",
+       "hdfs:///user/../myJars/jts-1.13.jar",
+       "hdfs:///user/../myJars/proj4j-0.1.0.jar"
+    ],
+    "executorMemory": "2g",
+    "executorCores": 2, 
+    "numExecutors" : 8,
+    "conf": {"master":"yarn"}
+}
+
+

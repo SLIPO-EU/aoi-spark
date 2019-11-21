@@ -14,74 +14,112 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.storage.StorageLevel._
 
 import scala.collection.mutable
-import scala.collection.mutable.HashMap
+import scala.collection.mutable.{ArrayBuffer, HashMap}
 
 
 class Hotspots() extends Serializable {
 
     protected def lonLatToCelId(lon: Double, lat: Double,
-                                startX: Double, startY: Double,
-                                gs: Double) : String = {
+                                minLon: Double, minLat: Double,
+                                gs: Double, lonBits: Int) : Long = {
 
-        val lonCol  = math.floor((lon - startX) / gs).toLong
-        val latRow  = math.floor((lat - startY) / gs).toLong
+        val lonCol  = math.floor((lon - minLon) / gs).toLong
+        val latRow  = math.floor((lat - minLat) / gs).toLong
 
-        lonCol + "c" + latRow
+        (lonCol << (63 - lonBits)) | latRow
+    }
+
+    def toMask(num: Int): Long = {
+
+        var i = 1
+        var res = 1L
+
+        while(i < num){
+            res = (res << 1) + 1
+            i = i + 1
+        }
+
+        res
     }
 
 
-    def cellIDToPID(cellID: String, pSizeK: Int) : String = {
+    def cellIDToPID(cellID: Long, pSizeK: Int, lonBits: Int, latBits: Int) : Long = {
 
-        val lonLatCols = cellID.split("c")
+        val lonCol  = cellID >> (63 - lonBits)
+        val latRow  = cellID & toMask(latBits)
 
-        val pLonCol = lonLatCols(0).toLong / pSizeK
-        val pLatCol = lonLatCols(1).toLong / pSizeK
+        val pLonCol = lonCol / pSizeK
+        val pLatCol = latRow / pSizeK
 
-        pLonCol + "p" + pLatCol
+        (pLonCol << (63 - lonBits)) | pLatCol
     }
 
-    protected def cellIDToLonLat(cellID: String,
+    protected def cellIDToLonLat(cellID: Long,
                                  gs_cell: Double,
-                                 startX: Double, startY: Double) : (Double, Double) = {
+                                 minLon: Double, minLat: Double,
+                                 lonBits: Int, latBits: Int
+                                ) : (Double, Double) = {
 
-        val lonLatArr = cellID.split("c")
-        val lonCol = lonLatArr(0).toLong
-        val latRow = lonLatArr(1).toLong
+        val lonCol  = cellID >> (63 - lonBits)
+        val latRow  = cellID & toMask(latBits)
 
-        (startX + lonCol * gs_cell , startY + latRow * gs_cell )
+        (minLon + lonCol * gs_cell , minLat + latRow * gs_cell )
+    }
+
+    /* Trancate Big Decimal Values, for better appearance. */
+    def roundAt(x: Double, p: Int): Double = {
+        BigDecimal(x).setScale(p, BigDecimal.RoundingMode.HALF_UP).toDouble
     }
 
 
-    protected def getNBCellIDs(cellID: String) : IndexedSeq[String] = {
+    def getNBCellIDs(cellID: Long,
+                     gs: Double,
+                     minLon: Double, minLat: Double,
+                     maxLon: Double, maxLat: Double,
+                     lonBits: Int, latBits: Int) : IndexedSeq[Long] = {
 
-        val lonLatArr = cellID.split("c")
-        val lonCol = lonLatArr(0).toLong
-        val latRow = lonLatArr(1).toLong
+
+        val lonCol  = cellID >> (63 - lonBits)
+        val latRow  = cellID & toMask(latBits)
+
 
         for{
             iLonCol <- (lonCol - 1) to (lonCol + 1)
             jLatRow <- (latRow - 1) to (latRow + 1)
+
+            iLon = roundAt(minLon + iLonCol * gs, 6)
+            jLat = roundAt(minLat + jLatRow * gs, 6)
+
+            if(iLon >= minLon && iLon < maxLon && jLat >= minLat && jLat < maxLat)
+
         }yield {
-            iLonCol + "c" + jLatRow
+
+            ( iLonCol << (63 - lonBits) ) | jLatRow
         }
+
     }
 
-    protected def cellIDToGeometry(cellID: String, gs_cell: Double,
-                                   startX: Double, startY: Double,
+
+    protected def cellIDToGeometry(cellID: Long, gs_cell: Double,
+                                   minLon: Double, minLat: Double,
+                                   lonBits: Int, latBits: Int,
                                    geometryFactory: GeometryFactory): Geometry = {
 
 
-        val (cellLon, cellLat) = cellIDToLonLat(cellID, gs_cell, startX, startY)
+        val (cellLon, cellLat) = cellIDToLonLat(cellID, gs_cell, minLon, minLat, lonBits, latBits)
 
-        val rLon = cellLon + gs_cell
-        val uLat = cellLat + gs_cell
+        val cellLon_2 = roundAt(cellLon, 6)
+        val cellLat_2 = roundAt(cellLat, 6)
+
+        val rLon = cellLon_2 + gs_cell
+        val uLat = cellLat_2 + gs_cell
 
         val coordinateArr = Array(
-            new Coordinate(cellLon, cellLat),
-            new Coordinate(cellLon, uLat),
+            new Coordinate(cellLon_2, cellLat_2),
+            new Coordinate(cellLon_2, uLat),
             new Coordinate(rLon, uLat),
-            new Coordinate(rLon, cellLat),
-            new Coordinate(cellLon, cellLat)
+            new Coordinate(rLon, cellLat_2),
+            new Coordinate(cellLon_2, cellLat_2)
         )
 
         geometryFactory.createPolygon(coordinateArr).asInstanceOf[Geometry]
@@ -116,45 +154,68 @@ class Hotspots() extends Serializable {
 
 
     def toGeomScoreArr(
-                        hotSpotsArr: Array[(String, Double)],
-                        gs_cell: Double,
-                        startX: Double,
-                        startY: Double,
-                        unionCells: Boolean
+                          hotSpotsArr: Array[(Long, Double)],
+                          gs_cell: Double,
+                          minLon: Double,
+                          minLat: Double,
+                          lonBits: Int,
+                          latBits: Int,
+                          unionCells: Boolean
                       ) : Array[(Int, Geometry, Double)] = {
 
         val geometryFactory = new GeometryFactory()
 
         if(unionCells){
             val resGeomVec = hotSpotsArr.foldLeft(Vector[(Geometry, Double, Int)]() )(
-                (zVec, x) => insertXintoGeomVec((cellIDToGeometry(x._1, gs_cell, startX, startY, geometryFactory), x._2), zVec)
+                (zVec, x) => insertXintoGeomVec((cellIDToGeometry(x._1, gs_cell, minLon, minLat, lonBits, latBits, geometryFactory), x._2), zVec)
             )
 
             resGeomVec.map(x => (x._1, x._2 / x._3) )
-                      .zipWithIndex
-                      .map(x => (x._2, x._1._1, x._1._2) )
-                      .toArray
+                .zipWithIndex
+                .map(x => (x._2, x._1._1, x._1._2) )
+                .toArray
         }
         else{
 
-            hotSpotsArr.map(x => (cellIDToGeometry(x._1, gs_cell, startX, startY, geometryFactory), x._2))
-                       .zipWithIndex
-                       .map(x => (x._2, x._1._1, x._1._2))
+            hotSpotsArr.map(x => (cellIDToGeometry(x._1, gs_cell, minLon, minLat, lonBits, latBits, geometryFactory), x._2))
+                .zipWithIndex
+                .map(x => (x._2, x._1._1, x._1._2))
         }
     }
 
 
+    def numToRepresentableBits(x: Int): Int = {
+
+        var i = 0
+        var temp = x.toDouble
+
+        while(temp >= 1.0){
+            temp = temp / 2.0
+            i    = i + 1
+        }
+
+        i
+    }
+
+
+    def toBits(maxDeg: Double, minDeg: Double, gsDeg: Double) : Int = {
+
+        numToRepresentableBits(math.ceil((maxDeg - minDeg) / gsDeg).toInt)
+    }
+
+
     def hotSpots(
-                  poiRDD: RDD[(String, (Double, Double, mutable.HashMap[String, Object]))],
-                  score_col: String,
+                    poiRDD: RDD[(String, (Double, Double, mutable.HashMap[String, Object]))],
+                    score_col: String,
 
-                  gsCell : Double,
-                  pSize_k: Int,
-                  top_k : Int,
-                  nbCellWeight: Double,
-                  unionCells: Boolean
-                ) : Array[(Int, Geometry, Double)] = {
+                    gsCell : Double,
+                    pSize_k: Int,
+                    top_k : Int,
+                    nbCellWeight: Double,
+                    unionCells: Boolean
+                ) : (Array[(Int, Geometry, Double)], ArrayBuffer[String]) = {
 
+        val logHS_ArrBuff = ArrayBuffer[String]()
 
         val poiRDD_2 = poiRDD.map{
             case (id, (lon, lat, hm)) => {
@@ -165,40 +226,92 @@ class Hotspots() extends Serializable {
             }
         }
 
-        findHotSpots(poiRDD_2, gsCell, pSize_k, top_k, nbCellWeight, unionCells)
+        findHotSpots(poiRDD_2, gsCell, pSize_k, top_k, nbCellWeight, unionCells, logHS_ArrBuff)
     }
 
 
     def hotSpots(
-                 poiRDD: RDD[POI],
-
-                 gsCell : Double,
-                 pSize_k: Int,
-                 top_k : Int,
-                 nbCellWeight: Double,
-                 unionCells: Boolean) : Array[(Int, Geometry, Double)] = {
-
-        val inputRDD = poiRDD.map(poi => (poi.x, poi.y, poi.score))
-        findHotSpots(inputRDD, gsCell, pSize_k, top_k, nbCellWeight, unionCells)
-    }
-
-
-    def findHotSpots(
-                    //        RDD[( lon,    lat,   score)]
-                    inputRDD: RDD[(Double, Double, Double)],
+                    poiRDD: RDD[POI],
 
                     gsCell : Double,
                     pSize_k: Int,
                     top_k : Int,
                     nbCellWeight: Double,
-                    unionCells: Boolean) : Array[(Int, Geometry, Double)] = {
+                    unionCells: Boolean
+                ) : (Array[(Int, Geometry, Double)], ArrayBuffer[String]) = {
 
-        //Take the 1st poi as the starting point of X,Y axis.
-        val (startX, startY, _) = inputRDD.take(1).head
+        val logHS_ArrBuff = ArrayBuffer[String]()
+
+        val inputRDD = poiRDD.map(poi => (poi.x, poi.y, poi.score))
+        findHotSpots(inputRDD, gsCell, pSize_k, top_k, nbCellWeight, unionCells, logHS_ArrBuff)
+    }
+
+
+    def findHotSpots(
+                        //        RDD[( lon,    lat,   score)]
+                        inputRDD: RDD[(Double, Double, Double)],
+
+                        gsCell : Double,
+                        pSize_k: Int,
+                        top_k : Int,
+                        nbCellWeight: Double,
+                        unionCells: Boolean,
+                        logArrBuff: ArrayBuffer[String]
+                    ) : (Array[(Int, Geometry, Double)], ArrayBuffer[String]) = {
+
+        val inputRDD_2 =  inputRDD.persist(DISK_ONLY)
+
+        //minLon, minLat, maxLon, maxLat
+        val (minLon, minLat, maxLon, maxLat) = inputRDD_2.aggregate((Double.MaxValue, Double.MaxValue, Double.MinValue, Double.MinValue))(
+            (zT, x) => {
+                var minLon = zT._1
+                var minLat = zT._2
+                var maxLon = zT._3
+                var maxLat = zT._4
+
+                if (x._1 < minLon)
+                    minLon = x._1
+
+                if (x._2 < minLat)
+                    minLat = x._2
+
+                if (x._1 > maxLon)
+                    maxLon = x._1
+
+                if (x._2 > maxLat)
+                    maxLat = x._2
+
+                (minLon, minLat, maxLon, maxLat)
+            },
+            (zT1, zT2) => {
+                var minLon = zT1._1
+                var minLat = zT1._2
+                var maxLon = zT1._3
+                var maxLat = zT1._4
+
+                if(zT2._1 < minLon)
+                    minLon = zT2._1
+
+                if(zT2._2 < minLat)
+                    minLat = zT2._2
+
+                if (zT2._3 > maxLon)
+                    maxLon = zT2._3
+
+                if (zT2._4 > maxLat)
+                    maxLat = zT2._4
+
+                (minLon, minLat, maxLon, maxLat)
+            }
+        )
+
+        //Calculate Bits in each Dimension
+        val lonBits  = toBits(maxLon, minLon, gsCell)       //Longitude Bits
+        val latBits  = toBits(maxLat, minLat, gsCell)       //Latitude  Bits
 
         //RDD[CellID, Score]
-        val cellRDD_1 = inputRDD.map{
-            case (lon, lat, score) => (lonLatToCelId(lon, lat, startX, startY, gsCell), score)
+        val cellRDD_1 = inputRDD_2.map{
+            case (lon, lat, score) => (lonLatToCelId(lon, lat, minLon, minLat, gsCell, lonBits), score)
         }
 
         //RDD[CellID, Score]
@@ -208,6 +321,10 @@ class Hotspots() extends Serializable {
             (z, x)   => (z._1 + 1, z._2 + x._2, z._3 + (x._2 * x._2)),
             (s1, s2) => (s1._1 + s2._1, s1._2 + s2._2, s1._3 + s2._3)
         )
+
+        logArrBuff += s"totalNumOfCells = $totalNumOfCells"
+        logArrBuff += s"totalScoreSum = $totalScoreSum"
+        logArrBuff += s"totalScoreSum^2 = $totalScoreSumPow2"
 
         val xMeanBD =  mySparkSession.sparkContext.broadcast(totalScoreSum / totalNumOfCells.toDouble)
         val sMeanBD = mySparkSession.sparkContext.broadcast(math.sqrt( (totalScoreSumPow2 / totalNumOfCells.toDouble) - xMeanBD.value * xMeanBD.value))
@@ -223,13 +340,13 @@ class Hotspots() extends Serializable {
 
                 //What is the PartitionID of the current Cell
                 //CellId -> PID
-                val origPID = cellIDToPID(cellID, pSize_k)
+                val origPID = cellIDToPID(cellID, pSize_k, lonBits, latBits)
 
                 //Get the Neighbourhood of the Cell.
-                val cellID_NBSeq = getNBCellIDs(cellID)
+                val cellID_NBSeq = getNBCellIDs(cellID, gsCell, minLon, minLat, maxLon, maxLat, lonBits, latBits)
 
                 //All Partition Ids of All cells inside Neighbourhood.
-                val pIDSeq = cellID_NBSeq.map(cellID_i =>  cellIDToPID(cellID_i, pSize_k) )
+                val pIDSeq = cellID_NBSeq.map(cellID_i =>  cellIDToPID(cellID_i, pSize_k, lonBits, latBits) )
 
                 pIDSeq.distinct.map{
                     i_PID => {
@@ -247,7 +364,7 @@ class Hotspots() extends Serializable {
         * Here We aggregate Per Partition.
         */
         //RDD[partitionRDD, HashMap[CellID, (score, isReal)] ]
-        val partitionRDD_2 = partitionRDD_1.aggregateByKey(HashMap[String, (Double, Boolean)]() )(
+        val partitionRDD_2 = partitionRDD_1.aggregateByKey(HashMap[Long, (Double, Boolean)]() )(
             //SeqOp
             (hm , x) => {
                 hm.update(x._1, (x._2, x._3) )
@@ -282,7 +399,7 @@ class Hotspots() extends Serializable {
                     sumWijXj = score   //For the cell in question wij is exclusively 1! The purpose is to consider with different weight your neighbours from yourself!
                     sumWij   = 1.0     //wi,1 = 1.0
                     sumWijP2 = 1.0
-                    val cellIDNBSeq = getNBCellIDs(cellID).filter(cID => cID != cellID)
+                    val cellIDNBSeq = getNBCellIDs(cellID, gsCell, minLon, minLat, maxLon, maxLat, lonBits, latBits).filter(cID => cID != cellID)
 
                     cellIDNBSeq.foreach{
                         cell_i => {
@@ -307,16 +424,16 @@ class Hotspots() extends Serializable {
         }
 
 
-        implicit val sortByMaxGi = new Ordering[(String, Double)] {
+        implicit val sortByMaxGi = new Ordering[(Long, Double)] {
 
-            override def compare(a: (String, Double), b: (String, Double) ) = {
+            override def compare(a: (Long, Double), b: (Long, Double) ) = {
 
                 if(a._2 > b._2)
                     +1
                 else if(a._2 < b._2)
                     -1
                 else
-                     0
+                    0
             }
         }
 
@@ -327,7 +444,7 @@ class Hotspots() extends Serializable {
         xMeanBD.destroy()
         sMeanBD.destroy()
 
-        toGeomScoreArr(top_k_GiArr, gsCell, startX, startY, unionCells)
+        (toGeomScoreArr(top_k_GiArr, gsCell, minLon, minLat, lonBits, latBits, unionCells), logArrBuff)
     }
 }
 

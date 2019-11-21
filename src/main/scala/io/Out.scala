@@ -42,12 +42,11 @@ object Out {
     def writeClusters(finalRDD: RDD[(String, Array[DBPOI])], outputFile: String) : Unit = {
 
         finalRDD.map{
-            case (clusterName, cluster) => {
-                clusterName + ";" + this.clusterToStr(cluster) + ";" + cluster.size
+                case (clusterName, cluster) => {
+                    clusterName + ";" + this.clusterToStr(cluster) + ";" + cluster.size
+                }
             }
-        }
-        //.coalesce(1)
-        .saveAsTextFile(outputFile)
+            .saveAsTextFile(outputFile)
     }
 
     @throws[IOException]
@@ -64,5 +63,5 @@ object Out {
             }
         }
     }
-    
+
 }

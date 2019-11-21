@@ -59,7 +59,6 @@ class DBSCAN() extends Serializable {
     *
     */
     def dbscan(pointRDD: RDD[(String, (Double, Double, HashMap[String, Object]))],
-                 //DBSCAN Parameters.
                  eps: Double,
                  minPts: Int
               ) = {
@@ -82,17 +81,7 @@ class DBSCAN() extends Serializable {
         }
 
 
-        val finalRDD = dbclusters(pointRDD_2, eps, minPts)
-
-        val finalRDD_2 = finalRDD.flatMap{
-            case (cID, arr_dbpoi) => {
-                arr_dbpoi.map(dbpoi => (dbpoi.poiId, cID))
-            }
-        }
-
-        val finalRDD_3 = pointRDD.join(finalRDD_2)
-        finalRDD_3
-
+        dbclusters(pointRDD_2, eps, minPts)
     }
 
 
@@ -109,8 +98,7 @@ class DBSCAN() extends Serializable {
         //Perform Spatial Partitioning with QuadTree
         pointRDD.spatialPartitioning(GridType.QUADTREE, 16)
 
-        //val boundaryEnvelopes = pointRDD.getPartitioner.getGrids
-        //writeBoundaryEnvsToFile(pointRDD, outputFile + "_Envelopes_only.txt", geometryFactory)
+
         this.spatialPartitionerBD = mySparkSession.sparkContext.broadcast(pointRDD.getPartitioner)
 
         //RDD[partitionID, dbpoi]
@@ -202,7 +190,7 @@ class DBSCAN() extends Serializable {
         )
 
 
-        //   Vector[Set[pID&cIID]],  HashMap[poiID ,pID&cID]                    Vector[Set[pID&cIID]] , HashMap[poiID , pID&cID]
+        //   Vector[Set[pID&cID]],  HashMap[poiID ,pID&cID]                      Vector[Set[pID&cIID]] , HashMap[poiID , pID&cID]
         val (mergingClusterNameVec, boundaryPoisToKeepHM) = bPoiRDD.aggregate( ( Vector[Set[String]](), HashMap[String, String]() ))(
             //SeqOp
             (zTuple, xTuple) => {

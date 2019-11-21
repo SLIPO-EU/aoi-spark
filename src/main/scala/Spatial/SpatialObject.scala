@@ -1,6 +1,7 @@
 package Spatial
 
 import com.vividsolutions.jts.geom.Geometry
+
 import scala.collection.mutable.HashMap
 
 class SpatialObject(
