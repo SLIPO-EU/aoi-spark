@@ -15,9 +15,9 @@ object dbscan {
         val logArrBuff: ArrayBuffer[String] = ArrayBuffer[String]()
         val startTime = System.nanoTime()
 
-        if(args.size != 1){
-            println("You should give the properties FilePath as argument to main...")
-            return
+        if(args.size != 2){
+            logArrBuff += "You should give the properties FilePath, and EPSG_ filePath as argument to main..."
+            println("You should give the properties FilePath, and EPSG_ filePath as argument to main...")
         }
 
         val inputFileParser = new InputFileParser(args(0))
@@ -56,8 +56,9 @@ object dbscan {
         val outLogPath = cl_outputFile + "/Log"
 
         val spatial = Spatial()
-        val poiRDD  = spatial.getLonLatRDD(
+        val (poiRDD, lonlatLog)  = spatial.getLonLatRDD(
             inputFile,
+            args(1),
             idCol,
             lonCol,
             latCol,
@@ -72,8 +73,13 @@ object dbscan {
             target_crs
         )
 
+        logArrBuff ++= lonlatLog
+
         val dbscan = new DBSCAN()
-        val finalRDD = dbscan.dbscan(pointRDD = poiRDD, eps = dbeps, minPts = minPts).persist(MEMORY_AND_DISK)
+        val prefinalRDD = dbscan.dbscan(pointRDD = poiRDD, eps = dbeps, minPts = minPts)//.persist(MEMORY_AND_DISK)
+
+        //Re-Write Pois to Source Coordinates.
+        val finalRDD = spatial.transformDBPOI_RDD_Coords(prefinalRDD, target_crs, source_crs).persist(MEMORY_AND_DISK)
 
         //Write Clusters to Output FIle.
         Out.writeClusters(finalRDD, cl_outputFile)

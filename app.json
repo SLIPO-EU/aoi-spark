@@ -1,7 +1,7 @@
 {
     "file": "hdfs:///user/../aoi-spark-2_2.11-0.1.jar",
     "className": "Runnables.dbscan",
-    "args": ["hdfs:///user/../config.properties"],
+    "args": ["hdfs:///user/../config.properties", "hdfs:///user/../EPSG_proj.csv"],
     "jars": [
        "hdfs:///user/../myJars/geospark-1.2.0.jar",
        "hdfs:///user/../myJars/jts-1.13.jar",

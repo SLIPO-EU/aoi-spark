@@ -12,9 +12,9 @@ object hotspots {
         val logArrBuff: ArrayBuffer[String] = ArrayBuffer[String]()
         val startTime = System.nanoTime()
 
-        if(args.size != 1){
-            println("You should give the properties FilePath as argument to main...")
-            return
+        if(args.size != 2){
+            logArrBuff += "You should give the properties FilePath, and EPSG_ filePath as argument to main..."
+            println("You should give the properties FilePath, and EPSG_ filePath as argument to main...")
         }
 
         val inputFileParser = new InputFileParser(args(0))
@@ -56,8 +56,9 @@ object hotspots {
         val outLogPath = hs_outputFile + "/Log"
 
         val spatial = Spatial()
-        val poiRDD  = spatial.getLonLatRDD(
+        val (poiRDD, lonlatLog)  = spatial.getLonLatRDD(
             inputFile,
+            args(1),
             idCol,
             lonCol,
             latCol,
@@ -72,10 +73,11 @@ object hotspots {
             target_crs
         )
 
+        logArrBuff ++= lonlatLog
 
         val hotSpots = new Hotspots()
 
-        val (hotSpotsArr, logHSBuff) = hotSpots.hotSpots(
+        val (preHotSpotsArr, logHSBuff) = hotSpots.hotSpots(
             poiRDD,
             scoreCol,
             cell_size,
@@ -84,6 +86,9 @@ object hotspots {
             hs_nb_cell_weight,
             hs_printAsUnionCells
         )
+
+        //Re-Write Geometries to Source Coordinates.
+        val hotSpotsArr = spatial.transformPolyCoords(preHotSpotsArr, target_crs, source_crs)
 
         logArrBuff ++= logHSBuff
 

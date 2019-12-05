@@ -126,7 +126,12 @@ class InputFileParser(val propertiesFile: String) extends Serializable {
                     case "pSize_k"  => this.pSize_k = arr(1).toInt
 
                     //HotSpot Variables
-                    case "hs-top-k"               => this.hs_top_k = arr(1).toInt
+                    case "hs-top-k"               => {
+                        arr(1) match {
+                            case "" => this.hs_top_k = -1
+                            case s  => this.hs_top_k = arr(1).toInt
+                        }
+                    }
                     case "hs-nb-cell-weight"      => this.hs_nb_cell_weight = arr(1).toDouble
                     case "hs-print-as-unioncells" => this.hs_print_as_unioncells = arr(1).toBoolean
 
