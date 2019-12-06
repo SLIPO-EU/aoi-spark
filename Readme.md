@@ -7,6 +7,11 @@ This is part of the Slipo project for mining Locations of Interest. It provides 
 
 3. Performs LDA(latent Dirichlet allocation) in a collection of documents.
 
+##Note
+Input coordinates can be transformed on the fly from Source to Destination EPSG codes and back
+if specified in config.properties.
+For better accuracy you can specify these variables and assign cell-eps(Hotspots) and eps for DBSCAN in meters. 
+
 ### Prerequisites
 
 - sbt (interacive build tool): https://www.scala-sbt.org/download.html
@@ -25,13 +30,13 @@ How to run Hotspots-Distributed:
 4. Run spark-submit script as follows:
 
     ./spark-submit 
-    --class runnables.(runnable) 
-    --master yarn
-    --driver-memory 4g 
-    --executor-memory 4g
-    path-to-generated-jar-file-from-Step-3.jar
-    path-to-config.properties-File
-    path-to-EPSG_proj.csv
+        --class runnables.(runnable) 
+        --master yarn
+        --driver-memory 4g 
+        --executor-memory 4g
+        path-to-generated-jar-file-from-Step-3.jar
+        path-to-config.properties-File
+        path-to-resources/EPSG_proj.csv
 
     where --class refers to the main runable class e.g:(hotspots, dbscan or lda).
 
@@ -43,13 +48,13 @@ How to run Hotspots-Distributed:
         4. lib dir.
    
    2. Fill config and app.json with appropriate variables.
-      (app.json takes 2 arguments in args: path_to_config, path_to_EPSG)
+      (app.json takes 2 arguments in args: path_to_config, path_to_EPSG_proj)
    
    3. Run by submitting job to Spark cluster e.g: Yarn by:
          curl -d @app.json -H 'Content-Type: application/json' -X POST ..Cluster_Path/batches
 
 Notice: aoi-spark is build with Spark Version 2.2.3.
-It is recommended the Spark cluster to have the same version.
+It is recommended for the Spark cluster to have the same version.
 
 ### License
 
