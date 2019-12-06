@@ -54,7 +54,7 @@ How to run Hotspots-Distributed:
    3. Run by submitting job to Spark cluster e.g: Yarn by:
          curl -d @app.json -H 'Content-Type: application/json' -X POST ..Cluster_Path/batches
 
-Notice: aoi-spark is build with Spark Version 2.2.3.
+Notice: aoi-spark is build under Spark Version 2.2.3.
 It is recommended for the Spark cluster to have the same version.
 
 ### License
