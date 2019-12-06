@@ -7,7 +7,7 @@ This is part of the Slipo project for mining Locations of Interest. It provides 
 
 3. Performs LDA(latent Dirichlet allocation) in a collection of documents.
 
-## Note
+#### Note
 
 Input coordinates can be transformed on the fly from Source to Destination EPSG codes and back
 if specified in config.properties.
@@ -33,7 +33,6 @@ How to run Hotspots-Distributed:
     ./spark-submit 
     
         --class runnables.(runnable) 
-        
         --master yarn
         --driver-memory 4g 
         --executor-memory 4g
