@@ -11,7 +11,8 @@ This is part of the Slipo project for mining Locations of Interest. It provides 
 
 Input coordinates can be transformed on the fly from Source to Destination EPSG codes and back
 if specified in config.properties.
-For better accuracy you can specify these variables and assign cell-eps(Hotspots) and eps(DBSCAN) in meters. 
+For better accuracy you can specify these variables and assign cell-eps(Hotspots) and eps(DBSCAN)
+in meters instead of degrees by default: https://en.wikipedia.org/wiki/Decimal_degrees
 
 ### Prerequisites
 
