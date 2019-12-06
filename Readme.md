@@ -11,12 +11,11 @@ This is part of the Slipo project for mining Locations of Interest. It provides 
 
 Input coordinates can be transformed on the fly from Source to Destination EPSG codes and back
 if specified in config.properties.
-For better accuracy you can specify these variables and assign cell-eps(Hotspots) and eps for DBSCAN in meters. 
+For better accuracy you can specify these variables and assign cell-eps(Hotspots) and eps(DBSCAN) in meters. 
 
 ### Prerequisites
 
 - sbt (interacive build tool): https://www.scala-sbt.org/download.html
-- Spark: http://spark.apache.org/downloads.html
 
 ### Usage
 
@@ -46,7 +45,7 @@ How to run Hotspots-Distributed:
    1. Upload somewhere to HDFS the following files:
         1. Generated jar e.g: aoi-spark-2_2.11-0.1.jar
         2. config.properties
-        3. EPSG_proj.csv
+        3. resources/EPSG_proj.csv
         4. lib dir.
    
    2. Fill config and app.json with appropriate variables.
