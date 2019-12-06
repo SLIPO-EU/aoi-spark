@@ -25,7 +25,7 @@ How to run Hotspots-Distributed:
 
 2. Open terminal inside root folder.
 
-3. $ sbt package
+3. sbt package
 
 4. Run spark-submit script as follows:
 
