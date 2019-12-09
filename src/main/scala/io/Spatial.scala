@@ -162,7 +162,7 @@ case class Spatial() extends Serializable {
         }{
             if(epsg_code == source_epsg_code)
                 source_epsg_boundary = Some(epsg_boundary)
-            else if(epsg_code == target_epsg_code)
+            if(epsg_code == target_epsg_code)
                 target_epsg_boundary = Some(epsg_boundary)
 
         }
