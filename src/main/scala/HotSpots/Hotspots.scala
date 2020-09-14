@@ -4,7 +4,8 @@ package HotSpots
 * HotSpot Detection
 * Distributed Edition in Spark & Scala.
 *
-* Authors: Panagiotis Kalampokis, Dr. Dimitris Skoutas
+* Head of project: Dimitris Skoutas
+* Coded By: Panagiotis Kalampokis
 * */
 
 import mySparkSession.mySparkSession
@@ -26,7 +27,7 @@ class Hotspots() extends Serializable {
         val lonCol  = math.floor((lon - minLon) / gs).toLong
         val latRow  = math.floor((lat - minLat) / gs).toLong
 
-        (lonCol << (63 - lonBits)) | latRow
+        (lonCol << (64 - lonBits)) | latRow
     }
 
     def toMask(num: Int): Long = {
@@ -45,13 +46,13 @@ class Hotspots() extends Serializable {
 
     def cellIDToPID(cellID: Long, pSizeK: Int, lonBits: Int, latBits: Int) : Long = {
 
-        val lonCol  = cellID >> (63 - lonBits)
+        val lonCol  = (cellID  >> (64 - lonBits)) & toMask(lonBits)
         val latRow  = cellID & toMask(latBits)
 
         val pLonCol = lonCol / pSizeK
         val pLatCol = latRow / pSizeK
 
-        (pLonCol << (63 - lonBits)) | pLatCol
+        (pLonCol << (64 - lonBits)) | pLatCol
     }
 
     protected def cellIDToLonLat(cellID: Long,
@@ -60,7 +61,7 @@ class Hotspots() extends Serializable {
                                  lonBits: Int, latBits: Int
                                 ) : (Double, Double) = {
 
-        val lonCol  = cellID >> (63 - lonBits)
+        val lonCol  = (cellID  >> (64 - lonBits)) & toMask(lonBits)
         val latRow  = cellID & toMask(latBits)
 
         (minLon + lonCol * gs_cell , minLat + latRow * gs_cell )
@@ -78,8 +79,7 @@ class Hotspots() extends Serializable {
                      maxLon: Double, maxLat: Double,
                      lonBits: Int, latBits: Int) : IndexedSeq[Long] = {
 
-
-        val lonCol  = cellID >> (63 - lonBits)
+        val lonCol  = (cellID  >> (64 - lonBits)) & toMask(lonBits)
         val latRow  = cellID & toMask(latBits)
 
 
@@ -94,7 +94,7 @@ class Hotspots() extends Serializable {
 
         }yield {
 
-            ( iLonCol << (63 - lonBits) ) | jLatRow
+            ( iLonCol << (64 - lonBits) ) | jLatRow
         }
 
     }
