@@ -1,7 +1,7 @@
 ### Overview
 This is part of the Slipo project for mining Locations of Interest. It provides distributed implementations in Apache Spark for the following operations:
 
-1. Find hotspots from a collection of Points in 2D space using the Getis-Ord (Gi* statistic).
+1. Find hotspots from a collection of Points in 2D or (3D)(+ time => HotSpots_3D.scala) space using the Getis-Ord (Gi* statistic).
 
 2. Find clusters implementing a distributed version of DBSCAN.
 
