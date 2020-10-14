@@ -1,15 +1,13 @@
-package gr.athenarc.i4sea.HotSpots
+package HotSpots
 
 /*
 * HotSpot Detection in 3D Space (longitude, latitude, time) by Getis Ord G*
 * https://pro.arcgis.com/en/pro-app/tool-reference/spatial-statistics/h-how-hot-spot-analysis-getis-ord-gi-spatial-stati.htm
-*
 * Distributed Edition in Spark & Scala.
+*
 * Head of project: Dimitris Skoutas
 * Coded By: Panagiotis Kalampokis
 * */
-
-import java.sql.Timestamp
 
 import com.vividsolutions.jts.geom.{Coordinate, Geometry, GeometryFactory}
 import org.apache.spark.rdd.RDD
@@ -33,7 +31,7 @@ class Hotspots_3D() extends Serializable {
         (lonCol << (32 - lonBits)) | (latRow << (32 - lonBits - latBits)) | tCol
     }
 
-    def toMask(num: Int): Long = {
+    def toMask(num: Int): Int = {
 
         var i = 1
         var res = 1L
@@ -43,15 +41,23 @@ class Hotspots_3D() extends Serializable {
             i = i + 1
         }
 
-        res
+        res.toInt
     }
 
 
-    def cellIDToPID(cellID: Int, pSize_gs_K: Int, pTW: Int, lonBits: Int, latBits: Int, tBits: Int) : Int = {
+    def cellIDToPID(cellID: Int,
+                    pSize_gs_K: Int,
+                    pTW: Int,
+                    lonBits: Int,
+                    latBits: Int,
+                    lonBitMask: Int,
+                    latBitMask: Int,
+                    tBitMask: Int
+                   ) : Int = {
 
-        val lonCol  = (cellID  >> (32 - lonBits)) & toMask(lonBits).toInt
-        val latRow  = (cellID >> (32 - lonBits - latBits)) & toMask(latBits).toInt
-        val tCol    = cellID & toMask(tBits).toInt
+        val lonCol  = (cellID  >> (32 - lonBits)) & lonBitMask
+        val latRow  = (cellID >> (32 - lonBits - latBits)) & latBitMask
+        val tCol    = cellID & tBitMask
 
         val pLonCol = lonCol / pSize_gs_K
         val pLatRow = latRow / pSize_gs_K
@@ -66,10 +72,9 @@ class Hotspots_3D() extends Serializable {
                                   lonBits: Int, latBits: Int, tBits: Int
                                  ) : (Double, Double, Long) = {
 
-        val lonCol  = (cellID  >> (32 - lonBits)) & toMask(lonBits).toInt
-        val latRow  = (cellID >> (32 - lonBits - latBits)) & toMask(latBits).toInt
-        val tCol    = cellID & toMask(tBits).toInt
-
+        val lonCol  = (cellID  >> (32 - lonBits)) & toMask(lonBits)
+        val latRow  = (cellID >> (32 - lonBits - latBits)) & toMask(latBits)
+        val tCol    = cellID & toMask(tBits)
 
         (minLon + lonCol * gsLon , minLat + latRow * gsLat, minT + tCol * gt_cell)
     }
@@ -84,20 +89,28 @@ class Hotspots_3D() extends Serializable {
                      gsLon: Double,
                      gsLat: Double,
                      gT: Long,
-                     minLon: Double, minLat: Double,
-                     maxLon: Double, maxLat: Double,
-                     minT: Long, maxT: Long,
-                     lonBits: Int, latBits: Int, tBits: Int) : IndexedSeq[Int] = {
+                     nbSize: Int,
+                     minLon: Double,
+                     minLat: Double,
+                     maxLon: Double,
+                     maxLat: Double,
+                     minT: Long,
+                     maxT: Long,
+                     lonBits: Int,
+                     latBits: Int,
+                     lonBitMask: Int,
+                     latBitMask: Int,
+                     tBitMask: Int
+                    ) : IndexedSeq[Int] = {
 
-
-        val lonCol  = (cellID  >> (32 - lonBits)) & toMask(lonBits).toInt
-        val latRow  = (cellID >> (32 - lonBits - latBits)) & toMask(latBits).toInt
-        val tCol    = cellID & toMask(tBits).toInt
+        val lonCol  = (cellID  >> (32 - lonBits)) & lonBitMask
+        val latRow  = (cellID >> (32 - lonBits - latBits)) & latBitMask
+        val tCol    = cellID & tBitMask
 
         for{
-            iLonCol <- (lonCol - 1) to (lonCol + 1)
-            jLatRow <- (latRow - 1) to (latRow + 1)
-            kTCol   <- (tCol - 1)   to (tCol   + 1)
+            iLonCol <- (lonCol - nbSize) to (lonCol + nbSize)
+            jLatRow <- (latRow - nbSize) to (latRow + nbSize)
+            kTCol   <- (tCol   - nbSize) to (tCol   + nbSize)
 
             iLon = minLon + iLonCol * gsLon
             jLat = minLat + jLatRow * gsLat
@@ -166,9 +179,10 @@ class Hotspots_3D() extends Serializable {
      * @param gsLon Cell longitude size in Degrees.
      * @param gsLat Cell latitude size in Degrees.
      * @param gT Time Window in milliseconds(e.g 1 hour = 60 * 60 * 1000 msec = 3600000L)
+     * @param nbSize Size of the neighbourhood to consider
      * <br><br>
      * Also takes as input a boundary Box in EPSG:4326, wgs84<br>
-     * @return An Array with the top-k hotCells of Gi* in wgs84, along with the timestamp window & Array with useful statistics.
+     * @return An Array with the top-k hotCells of Gi* in wgs84, along with t(millisecs) denoting time window & Array with useful statistics.
      * */
     def findHotSpots(
                         //        RDD[( lon,    lat,   timeStamp(msec),  score)] in WGS84
@@ -178,7 +192,8 @@ class Hotspots_3D() extends Serializable {
                         gsLat : Double,                //meters or degrees
                         gT     : Long = 3600000L,      //gT Time window in msec (e.g 1 hour = 60 * 60 * 1000 msec)
 
-                        top_k : Int   = 50,
+                        top_k : Int   = 50,            //Top K Hotspots
+                        nbSize: Int   = 1,             //Size of the neighbourhood
 
                         pSize_gs_k: Int = 20,
                         pSize_ts_k : Int = 20,
@@ -188,11 +203,10 @@ class Hotspots_3D() extends Serializable {
                         minLat: Double = 34.88,
                         maxLon: Double = 28.3,
                         maxLat: Double = 41.75,
-                    
                         //Time in msec
                         minTime: Long,
                         maxTime: Long
-                    )(implicit spark: SparkSession) : (Array[(Int, Geometry, Timestamp, Double)], ArrayBuffer[String]) = {
+                    )(implicit spark: SparkSession) : (Array[(Int, Geometry, Long, Double)], ArrayBuffer[String]) = {
 
 
         val logArrBuff = ArrayBuffer[String]()
@@ -211,20 +225,25 @@ class Hotspots_3D() extends Serializable {
         if (lonBits + latBits + timeBits > 32) {
             logArrBuff += "Bits > 32! Please Retry with lower analysis."
             println("Bits > 32! Please Retry with lower analysis.")
-            return (Array[(Int, Geometry, Timestamp, Double)](), logArrBuff)
+            return (Array[(Int, Geometry, Long, Double)](), logArrBuff)
         }
 
 
+        //Broadcast Variables
         val bboxBD = spark.sparkContext.broadcast((minLon, minLat, maxLon, maxLat))
         val twBD   = spark.sparkContext.broadcast((minTime, maxTime))
         val gTBD   = spark.sparkContext.broadcast(gT)
         val gsLonBD = spark.sparkContext.broadcast(gsLon)
         val gsLatBD = spark.sparkContext.broadcast(gsLat)
+        val nbSizeBD = spark.sparkContext.broadcast(nbSize)
         val lonBitsBD = spark.sparkContext.broadcast(lonBits)
         val latBitsBD = spark.sparkContext.broadcast(latBits)
         val timeBitsBD = spark.sparkContext.broadcast(timeBits)
         val pSizeGSKBD = spark.sparkContext.broadcast(pSize_gs_k)
-        val pSizePGT   = spark.sparkContext.broadcast(pSize_ts_k)
+        val pSizeGTBD   = spark.sparkContext.broadcast(pSize_ts_k)
+        val lonBitMaskBD = spark.sparkContext.broadcast(toMask(lonBits))
+        val latBitMaskBD = spark.sparkContext.broadcast(toMask(latBits))
+        val tBitMaskBD = spark.sparkContext.broadcast(toMask(timeBits))
 
 
         //RDD[cellID, score]
@@ -285,33 +304,62 @@ class Hotspots_3D() extends Serializable {
         * We keep Only those who map to different Partition. (Up to 4 Copies Maximun for each cell)
         */
         //RDD[partitionID, (CellID, score, isReal)]
-        val partitionRDD_1 = cellRDD.flatMap {
-            case (cellID, score) => {
+        val partitionRDD_1 = cellRDD.mapPartitions {
+            tIter => {
 
-                //What is the PartitionID of the current Cell
-                //CellId -> PID
-                val origPID = cellIDToPID(cellID, pSizeGSKBD.value, pSizePGT.value, lonBitsBD.value, latBitsBD.value, timeBitsBD.value)
-
+                val arrBuff = ArrayBuffer[(Int, (Int, Int, Boolean))]()
                 val (minLon, minLat, maxLon, maxLat) = bboxBD.value
                 val (minT, maxT) = twBD.value
+                val lonBitMask = lonBitMaskBD.value
+                val latBitMask = latBitMaskBD.value
+                val tBitMask   = tBitMaskBD.value
+                val gsLon = gsLonBD.value
+                val gsLat = gsLatBD.value
+                val gT    = gTBD.value
+                val nbSize = nbSizeBD.value
+                val lonBits = lonBitsBD.value
+                val latBits = latBitsBD.value
+                val tBits = timeBitsBD.value
 
-                //Get the Neighbourhood of the Cell.
-                val cellID_NBSeq = getNBCellIDs(cellID, gsLonBD.value, gsLatBD.value, gTBD.value, minLon, minLat, maxLon, maxLat, minT, maxT, lonBitsBD.value, latBitsBD.value, timeBitsBD.value)
+                val pSizeGS = pSizeGSKBD.value
+                val pSizeGT = pSizeGTBD.value
 
-                //All Partition Ids of All cells inside Neighbourhood.
-                val pIDSeq = cellID_NBSeq.map(cellID_i => cellIDToPID(cellID_i, pSizeGSKBD.value, pSizePGT.value, lonBitsBD.value, latBitsBD.value, timeBitsBD.value))
+                while(tIter.hasNext){
 
-                pIDSeq.distinct.map {
-                    i_PID => {
+                    val (cellID, score) = tIter.next()
 
-                        if (i_PID == origPID)
-                            (i_PID, (cellID, score, true))
-                        else
-                            (i_PID, (cellID, score, false))
+                    try {
+                        //What is the PartitionID of the current Cell
+                        //CellId -> PID
+                        val origPID = cellIDToPID(cellID, pSizeGS, pSizeGT, lonBits, latBits, lonBitMask, latBitMask, tBitMask)
+
+                        //Get the Neighbourhood of the Cell.
+                        val cellID_NBSeq = getNBCellIDs(cellID, gsLon, gsLat, gT, nbSize, minLon, minLat, maxLon, maxLat, minT, maxT, lonBits, latBits, lonBitMask, latBitMask, tBitMask)
+
+                        //All Partition Ids of All cells inside Neighbourhood.
+                        val pIDUniqSeq = cellID_NBSeq.map(cellID_i => cellIDToPID(cellID_i, pSizeGS, pSizeGT, lonBits, latBits, lonBitMask, latBitMask, tBitMask))
+                                                     .distinct
+
+                        var isInPartition = true
+                        for(pid_i <- pIDUniqSeq){
+
+                            if (pid_i == origPID)
+                                isInPartition = true
+                            else
+                                isInPartition = false
+
+                            arrBuff.append((pid_i, (cellID, score, isInPartition)))
+                        }
+                    }
+                    catch {
+                        case e: Exception => e.printStackTrace()
                     }
                 }
+
+                arrBuff.toIterator
             }
         }
+
 
         /*
         * We aggregate Per Partition.
@@ -335,10 +383,25 @@ class Hotspots_3D() extends Serializable {
             case (pID, hashMap) => {
 
                 var sumWijXj = 0.0
-                var sumWij = 0.0
+                var sumWij   = 0.0
                 var sumWijP2 = 0.0
                 val (minLon, minLat, maxLon, maxLat) = bboxBD.value
                 val (minT, maxT) = twBD.value
+
+
+                val lonBitMask = lonBitMaskBD.value
+                val latBitMask = latBitMaskBD.value
+                val tBitMask   = tBitMaskBD.value
+                val gsLon = gsLonBD.value
+                val gsLat = gsLatBD.value
+                val gT    = gTBD.value
+                val nbSize = nbSizeBD.value
+                val lonBits = lonBitsBD.value
+                val latBits = latBitsBD.value
+
+                val totalNumOfCells = totalNumOfCellsBD.value
+                val xMean = xMeanBD.value
+                val sMean = sMeanBD.value
 
                 //Replace with Cell-Weight Map
                 val nbCellWeight = 1.0
@@ -348,32 +411,34 @@ class Hotspots_3D() extends Serializable {
 
                     if (isReal)
                 } yield {
-                    sumWijXj = score //For the cell in question wij is exclusively 1! The purpose is to consider with different weight your neighbours from yourself!
-                    sumWij   = 1.0 //wi,1 = 1.0
-                    sumWijP2 = 1.0
-                    val cellIDNBSeq = getNBCellIDs(cellID, gsLonBD.value, gsLatBD.value, gTBD.value, minLon, minLat, maxLon, maxLat, minT, maxT, lonBitsBD.value, latBitsBD.value, timeBitsBD.value).filter(cID => cID != cellID)
 
-                    cellIDNBSeq.foreach {
-                        cell_i => {
-                            hashMap.get(cell_i) match {
-                                case Some(xi) => {
-                                    sumWijXj = sumWijXj + nbCellWeight * xi._1 //Sum(WijXj) all the cells in the Neighborhood
-                                    sumWij = sumWij + nbCellWeight //Sum(Wij) all the cells in the Neighborhood
-                                    sumWijP2 = sumWijP2 + nbCellWeight * nbCellWeight
-                                }
-                                case None => ()
+                    sumWijXj = 0.0 //For the cell in question wij is exclusively 1! The purpose is to consider with different weight your neighbours from yourself!
+                    sumWij   = 0.0
+                    sumWijP2 = 0.0
+
+                    //Get the Neighbourhood of the Cell.
+                    val cellIDNBSeq = getNBCellIDs(cellID, gsLon, gsLat, gT, nbSize, minLon, minLat, maxLon, maxLat, minT, maxT, lonBits, latBits, lonBitMask, latBitMask, tBitMask)
+
+                    for(cell_i <- cellIDNBSeq){
+                        hashMap.get(cell_i) match {
+                            case Some(xi) => {
+                                sumWijXj = sumWijXj + nbCellWeight * xi._1         //Sum(Wij * Xj) all the cells in the Neighborhood
+                                sumWij   = sumWij   + nbCellWeight                 //Sum(Wij) of all the cells in the Neighborhood
+                                sumWijP2 = sumWijP2 + nbCellWeight * nbCellWeight  //Sum(Wij^2) of all the cells in the Neighborhood
                             }
+                            case None => ()
                         }
                     }
 
-                    val numerator = sumWijXj - xMeanBD.value * sumWij
-                    val denominator = sMeanBD.value * math.sqrt((totalNumOfCellsBD.value * sumWijP2 - sumWij * sumWij) / (totalNumOfCellsBD.value - 1))
+                    val numerator = sumWijXj - xMean * sumWij
+                    val denominator = sMean * math.sqrt((totalNumOfCells * sumWijP2 - sumWij * sumWij) / (totalNumOfCells - 1))
                     val gi = numerator / denominator
 
                     (cellID, gi)
                 }
             }
         }
+
 
 
         implicit val sortByMaxGi = new Ordering[(Int, Double)] {
@@ -408,7 +473,7 @@ class Hotspots_3D() extends Serializable {
 
             i = i + 1
 
-            (i, geometryFactory.createPolygon(coordArr).asInstanceOf[Geometry], new java.sql.Timestamp(t), roundAt(score, 6))
+            (i, geometryFactory.createPolygon(coordArr).asInstanceOf[Geometry], t, roundAt(score, 6))
         }
 
         (top_k_GeomArrWGS84, logArrBuff)
