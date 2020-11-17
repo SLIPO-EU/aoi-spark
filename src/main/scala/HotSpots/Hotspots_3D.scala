@@ -13,22 +13,58 @@ import com.vividsolutions.jts.geom.{Coordinate, Geometry, GeometryFactory}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.storage.StorageLevel._
-
 import scala.collection.mutable.{ArrayBuffer, HashMap}
 
 
 class Hotspots_3D() extends Serializable {
 
+
     protected def lonLatTimeToCelId(lon: Double, lat: Double, t: Long,
                                     minLon: Double, minLat: Double, minT: Long,
+                                    maxLon: Double, maxLat: Double, maxT: Long,
                                     gsLon: Double, gsLat: Double, gt: Long,
-                                    lonBits: Int, latBits: Int) : Int = {
+                                    lonBits: Int, latBits: Int) : Array[Int] = {
 
         val lonCol  = ((lon - minLon) / gsLon).toInt
         val latRow  = ((lat - minLat) / gsLat).toInt
         val tCol    = ((t - minT).toDouble / gt.toDouble).toInt
 
-        (lonCol << (32 - lonBits)) | (latRow << (32 - lonBits - latBits)) | tCol
+        var lonArr = Array[Int]()
+        if(lon < maxLon)
+            lonArr = lonArr :+ lonCol
+
+        //If touches Lon axis
+        if(((lon - minLon) % gsLon) == 0 && (lonCol-1) >= 0){
+            lonArr = lonArr :+ (lonCol - 1)
+        }
+
+        var latArr = Array[Int]()
+        if(lat < maxLat)
+            latArr = latArr :+ latRow
+
+        //If touches Lat axis
+        if(((lat - minLat) % gsLat) == 0  && (latRow-1) >= 0){
+            latArr = latArr :+ (latRow - 1)
+        }
+
+        var tArr = Array[Int]()
+        if(t < maxT)
+            tArr = tArr :+ tCol
+
+        //If touches Time axis
+        if(((t - minT) % gt) == 0  && (tCol-1) >= 0){
+            tArr = tArr :+ (tCol - 1)
+        }
+
+        for{
+            lonCol_i <- lonArr
+            latRow_i <- latArr
+            tCol_i   <- tArr
+        } yield {
+            val cellid_i = (lonCol_i << (32 - lonBits)) | (latRow_i << (32 - lonBits - latBits)) | tCol_i
+            cellid_i
+        }
+
     }
 
     def toMask(num: Int): Int = {
@@ -182,15 +218,15 @@ class Hotspots_3D() extends Serializable {
      * @param nbSize Size of the neighbourhood to consider
      * <br><br>
      * Also takes as input a boundary Box in EPSG:4326, wgs84<br>
-     * @return An Array with the top-k hotCells of Gi* in wgs84, along with t(millisecs) denoting time window & Array with useful statistics.
+     * @return An Array with the top-k hotCells of Gi* in wgs84, along with t(milisecs) denoting time window & Array with useful statistics.
      * */
     def findHotSpots(
-                        //        RDD[( lon,    lat,   timeStamp(msec),  score)] in WGS84
+                        //        RDD[( lon,    lat,   timeStamp(milisec),  score)] in WGS84
                         inputRDD: RDD[(Double, Double,     Long,        Int)],
 
                         gsLon : Double,                //meters or degrees
                         gsLat : Double,                //meters or degrees
-                        gT     : Long = 3600000L,      //gT Time window in msec (e.g 1 hour = 60 * 60 * 1000 msec)
+                        gT     : Long = 3600000L,      //gT Time window in milisec (e.g 1 hour = 60 * 60 * 1000 milisec)
 
                         top_k : Int   = 50,            //Top K Hotspots
                         nbSize: Int   = 1,             //Size of the neighbourhood
@@ -269,7 +305,8 @@ class Hotspots_3D() extends Serializable {
                             lat >= minLat && lat <= maxLat &&
                             t >= minTime && t <= maxTime
                         ) {
-                            finalArrBuff.append((lonLatTimeToCelId(lon, lat, t, minLon, minLat, minTime, gsLon, gsLat, gT, lonBits, latBits), score))
+                            val cellIDArr = lonLatTimeToCelId(lon, lat, t, minLon, minLat, minTime, maxLon, maxLat, maxTime, gsLon, gsLat, gT, lonBits, latBits)
+                            finalArrBuff ++= cellIDArr.map(cellID => (cellID, score))
                         }
                     }
                     catch {
@@ -477,6 +514,50 @@ class Hotspots_3D() extends Serializable {
         }
 
         (top_k_GeomArrWGS84, logArrBuff)
+
+
+        /*
+        * IF We want Compacted Cells --> Array[Geometry, Array(id, t, score)]
+        * Only For Zeppelin
+        */
+        //Temp
+
+        /*
+        val compactedArrBuff = ArrayBuffer[(Geometry, ArrayBuffer[(Int, Timestamp, Double)])]()
+
+        for((idx, geometry, t, score) <- top_k_GeomArrWGS84){
+
+            var keepGoing = true
+            for((compGeom, arrBuff) <- compactedArrBuff){
+                if(keepGoing && geometry.equalsExact(compGeom)) {
+                    arrBuff.append((idx, t, score))
+                    keepGoing = false
+                }
+            }
+
+            if(keepGoing){
+                compactedArrBuff.append((geometry, ArrayBuffer((idx, t, score)) ) )
+            }
+
+        }
+
+        import com.vividsolutions.jts.geom.{Polygon}
+        val fArr = compactedArrBuff.map{
+            x => {
+                x._1 match {
+                    case polygon: Polygon => {
+                        val coordArr = for (coord <- polygon.getCoordinates) yield{
+                            (coord.x, coord.y)
+                        }
+
+                        (coordArr, x._2.map(y => (y._1, y._2.toString, y._3)).toArray, x._2.head._1)
+
+                        //case _ => Array[(Double, Double)]()
+                    }
+                }
+            }
+        }.toArray
+        */
 
     }
 
